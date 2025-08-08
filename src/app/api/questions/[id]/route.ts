@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: any
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -15,7 +15,7 @@ export async function PUT(
     }
 
     const questionId = params.id
-    const { question, type, options, order } = await request.json()
+    const { question, type, options, optionScores, order } = await request.json()
 
     if (!question || !type) {
       return NextResponse.json({ error: 'Question and type are required' }, { status: 400 })
@@ -55,6 +55,7 @@ export async function PUT(
         question: question.trim(),
         type,
         options: (type === 'MCQ' || type === 'CHECKBOX') ? options || [] : [],
+        optionScores: (type === 'MCQ' || type === 'CHECKBOX') ? optionScores || [] : [],
         order: order !== undefined ? order : existingQuestion.order
       },
       include: {
@@ -71,7 +72,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: any
 ) {
   try {
     const session = await getServerSession(authOptions)

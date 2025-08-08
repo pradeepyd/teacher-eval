@@ -5,22 +5,22 @@ declare module 'next-auth' {
       email: string
       name: string
       role: string
-      departmentId: string
-      departmentName: string
+      departmentId: string | null
+      departmentName: string | null
     }
   }
 
   interface User {
     role: string
-    departmentId: string
-    departmentName: string
+    departmentId: string | null
+    departmentName: string | null
   }
 }
 
 declare module 'next-auth/jwt' {
   interface JWT {
     role: string
-    departmentId: string
-    departmentName: string
+    departmentId: string | null
+    departmentName: string | null
   }
 }

@@ -156,6 +156,9 @@ export async function POST(request: NextRequest) {
     // Determine status based on promotion
     const status = promoted ? 'PROMOTED' : 'ON_HOLD'
 
+    // Resolve termId for linkage
+    const termRecord = await prisma.term.findFirst({ where: { year: new Date().getFullYear() }, select: { id: true } })
+
     // Create or update final review
     const review = await prisma.finalReview.upsert({
       where: {
@@ -169,7 +172,8 @@ export async function POST(request: NextRequest) {
         finalScore: score,
         status,
         submitted: true,
-        reviewerId: session.user.id
+        reviewerId: session.user.id,
+        termId: termRecord?.id || null
       },
       create: {
         teacherId,
@@ -178,7 +182,8 @@ export async function POST(request: NextRequest) {
         finalScore: score,
         status,
         submitted: true,
-        reviewerId: session.user.id
+        reviewerId: session.user.id,
+        termId: termRecord?.id || null
       }
     })
 

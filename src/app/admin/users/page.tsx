@@ -54,7 +54,8 @@ export default function UsersPage() {
     name: '',
     email: '',
     role: '',
-    departmentId: ''
+    departmentId: '',
+    password: ''
   })
 
   // Fetch users
@@ -63,7 +64,14 @@ export default function UsersPage() {
     setError(null)
 
     try {
-      const response = await fetch('/api/users')
+      const url = new URL('/api/admin/users', window.location.origin)
+      const params = new URLSearchParams(window.location.search)
+      const departmentId = params.get('departmentId')
+      const roleParam = params.get('role')
+      if (departmentId) url.searchParams.set('departmentId', departmentId)
+      if (roleParam) url.searchParams.set('role', roleParam)
+
+      const response = await fetch(url.toString())
       if (!response.ok) {
         throw new Error('Failed to fetch users')
       }
@@ -111,7 +119,8 @@ export default function UsersPage() {
           name: formData.name.trim(),
           email: formData.email.trim(),
           role: formData.role,
-          departmentId: formData.departmentId || null
+          departmentId: formData.departmentId || null,
+          password: formData.password.trim(),
         })
       })
 
@@ -208,7 +217,8 @@ export default function UsersPage() {
       name: '',
       email: '',
       role: '',
-      departmentId: ''
+      departmentId: '',
+      password: ''
     })
     setEditingUser(null)
   }
@@ -220,7 +230,8 @@ export default function UsersPage() {
       name: user.name,
       email: user.email,
       role: user.role,
-      departmentId: user.department?.id || ''
+      departmentId: user.department?.id || '',
+      password: ''
     })
     setShowAddModal(true)
   }
@@ -373,6 +384,19 @@ export default function UsersPage() {
                       disabled={submitting}
                     />
                   </div>
+                  {!editingUser && (
+                    <div className="grid gap-2">
+                      <label htmlFor="password" className="text-sm font-medium">Password</label>
+                      <Input
+                        id="password"
+                        type="password"
+                        value={formData.password}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        placeholder="Temporary password for the user"
+                        disabled={submitting}
+                      />
+                    </div>
+                  )}
                   <div className="grid gap-2">
                     <label htmlFor="role" className="text-sm font-medium">Role</label>
                     <Select 

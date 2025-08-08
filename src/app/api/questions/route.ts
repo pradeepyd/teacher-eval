@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       ]
     })
 
-    return NextResponse.json(questions)
+    return NextResponse.json({ questions })
   } catch (error) {
     console.error('Error fetching questions:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { question, type, term, options, order } = await request.json()
+    const { question, type, term, options, optionScores, order } = await request.json()
 
     if (!question || !type || !term) {
       return NextResponse.json({ error: 'Question, type, and term are required' }, { status: 400 })
@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
         type,
         term,
         options: (type === 'MCQ' || type === 'CHECKBOX') ? options || [] : [],
+        optionScores: (type === 'MCQ' || type === 'CHECKBOX') ? optionScores || [] : [],
         order: order || 0
       },
       include: {

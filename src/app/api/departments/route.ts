@@ -14,10 +14,12 @@ export async function GET(request: NextRequest) {
     const departments = await prisma.department.findMany({
       include: {
         termState: true,
+        users: {
+          where: { role: 'HOD' },
+          select: { id: true, name: true }
+        },
         _count: {
-          select: {
-            users: true
-          }
+          select: { users: true }
         }
       },
       orderBy: {
@@ -25,7 +27,13 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json({ departments })
+    const mapped = departments.map(d => ({
+      ...d,
+      hod: d.users[0] ? { id: d.users[0].id, name: d.users[0].name } : null,
+      users: undefined
+    }))
+
+    return NextResponse.json({ departments: mapped })
   } catch (error) {
     console.error('Error fetching departments:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

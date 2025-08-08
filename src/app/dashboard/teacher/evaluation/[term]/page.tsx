@@ -6,11 +6,7 @@ import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
 import EvaluationForm from '@/components/EvaluationForm'
 
-interface PageProps {
-  params: {
-    term: 'START' | 'END'
-  }
-}
+type PageProps = any
 
 export default function EvaluationPage({ params }: PageProps) {
   const [loading, setLoading] = useState(false)

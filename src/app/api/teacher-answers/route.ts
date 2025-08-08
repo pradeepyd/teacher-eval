@@ -122,6 +122,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Resolve termId (if a matching Term exists for teacher's department and year)
+    let resolvedTermId: string | null = null
+    try {
+      const currentYear = new Date().getFullYear()
+      const termMatch = await prisma.term.findFirst({
+        where: {
+          year: currentYear,
+          departments: { some: { id: session.user.departmentId || undefined } }
+        },
+        select: { id: true }
+      })
+      resolvedTermId = termMatch?.id || null
+    } catch {}
+
     // Use transaction to ensure data consistency
     const result = await prisma.$transaction(async (tx) => {
       // Save all answers
@@ -132,7 +146,8 @@ export async function POST(request: NextRequest) {
               teacherId: session.user.id,
               questionId: answer.questionId,
               term: term as 'START' | 'END',
-              answer: answer.answer
+              answer: answer.answer,
+              termId: resolvedTermId,
             }
           })
         )
@@ -143,7 +158,8 @@ export async function POST(request: NextRequest) {
         data: {
           teacherId: session.user.id,
           term: term as 'START' | 'END',
-          comment: selfComment.trim()
+          comment: selfComment.trim(),
+          termId: resolvedTermId,
         }
       })
 
@@ -156,6 +172,85 @@ export async function POST(request: NextRequest) {
     }, { status: 201 })
   } catch (error) {
     console.error('Error submitting teacher answers:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+// Save draft answers or update partial inputs
+export async function PATCH(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+
+    if (!session || session.user.role !== 'TEACHER') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { answers, selfComment, term } = await request.json()
+
+    if (!term || !['START', 'END'].includes(term)) {
+      return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
+    }
+
+    // Resolve termId
+    let resolvedTermId: string | null = null
+    try {
+      const currentYear = new Date().getFullYear()
+      const termMatch = await prisma.term.findFirst({
+        where: {
+          year: currentYear,
+          departments: { some: { id: session.user.departmentId || undefined } }
+        },
+        select: { id: true }
+      })
+      resolvedTermId = termMatch?.id || null
+    } catch {}
+
+    // Save/Upsert answers if provided
+    if (Array.isArray(answers)) {
+      for (const a of answers) {
+        if (!a?.questionId || typeof a?.answer !== 'string') continue
+        await prisma.teacherAnswer.upsert({
+          where: {
+            teacherId_questionId_term: {
+              teacherId: session.user.id,
+              questionId: a.questionId,
+              term: term as 'START' | 'END'
+            }
+          },
+          update: { answer: a.answer, termId: resolvedTermId },
+          create: {
+            teacherId: session.user.id,
+            questionId: a.questionId,
+            term: term as 'START' | 'END',
+            answer: a.answer,
+            termId: resolvedTermId
+          }
+        })
+      }
+    }
+
+    // Save/Upsert self comment if provided
+    if (typeof selfComment === 'string') {
+      await prisma.selfComment.upsert({
+        where: {
+          teacherId_term: {
+            teacherId: session.user.id,
+            term: term as 'START' | 'END'
+          }
+        },
+        update: { comment: selfComment.trim(), termId: resolvedTermId },
+        create: {
+          teacherId: session.user.id,
+          term: term as 'START' | 'END',
+          comment: selfComment.trim(),
+          termId: resolvedTermId
+        }
+      })
+    }
+
+    return NextResponse.json({ message: 'Draft saved' })
+  } catch (error) {
+    console.error('Error saving draft:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -45,35 +45,53 @@ export default function AdminDashboard() {
   })
   const [departments, setDepartments] = useState<DepartmentTerm[]>([])
   const [loading, setLoading] = useState(true)
+  const [activities, setActivities] = useState<{
+    id: string;
+    type: string;
+    message: string;
+    department?: string | null;
+    timestamp: string;
+  }[]>([])
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         // Fetch users and departments data
-        const [usersResponse, deptResponse] = await Promise.all([
-          fetch('/api/users'),
-          fetch('/api/departments')
+        const [usersResponse, deptResponse, activityResponse] = await Promise.all([
+          fetch('/api/admin/users'),
+          fetch('/api/departments'),
+          fetch('/api/admin/activity')
         ])
 
-        if (usersResponse.ok && deptResponse.ok) {
-          const users = await usersResponse.json()
-          const depts = await deptResponse.json()
+        if (!usersResponse.ok || !deptResponse.ok || !activityResponse.ok) {
+          throw new Error('Failed to load dashboard data')
+        }
 
-          setStats({
-            totalUsers: users.length,
-            totalTeachers: users.filter((u: any) => u.role === 'TEACHER').length,
-            totalDepartments: depts.length,
-            activeEvaluations: Math.floor(users.length * 0.6), // Mock data
-            completedReviews: Math.floor(users.length * 0.4), // Mock data
-            pendingReviews: Math.floor(users.length * 0.2) // Mock data
-          })
+        const usersJson = await usersResponse.json()
+        const deptsJson = await deptResponse.json()
+        const activityJson = await activityResponse.json()
 
-          setDepartments(depts.map((d: any) => ({
+        const users = Array.isArray(usersJson.users) ? usersJson.users : []
+        const depts = Array.isArray(deptsJson.departments) ? deptsJson.departments : []
+
+        setStats({
+          totalUsers: users.length,
+          totalTeachers: users.filter((u: any) => u.role === 'TEACHER').length,
+          totalDepartments: depts.length,
+          activeEvaluations: Math.floor(users.length * 0.6),
+          completedReviews: Math.floor(users.length * 0.4),
+          pendingReviews: Math.floor(users.length * 0.2)
+        })
+
+        setDepartments(
+          depts.map((d: any) => ({
             id: d.id,
             name: d.name,
             activeTerm: d.termState?.activeTerm || 'START'
-          })))
-        }
+          }))
+        )
+
+        setActivities(Array.isArray(activityJson.activities) ? activityJson.activities : [])
       } catch (error) {
         console.error('Error fetching dashboard data:', error)
       } finally {
@@ -87,7 +105,7 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <RoleGuard allowedRoles={['ADMIN']}>
-        <DashboardLayout title="Admin Dashboard">
+        <DashboardLayout title="Admin Dashboard" showBack={false}>
           <div className="flex items-center justify-center min-h-[400px]">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
           </div>
@@ -98,7 +116,7 @@ export default function AdminDashboard() {
 
   return (
     <RoleGuard allowedRoles={['ADMIN']}>
-      <DashboardLayout title="Admin Dashboard">
+      <DashboardLayout title="Admin Dashboard" showBack={false}>
         <div className="space-y-8">
           {/* Quick Actions */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -256,27 +274,25 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">New teacher evaluation submitted</p>
-                    <p className="text-xs text-muted-foreground">Computer Science department • 2 hours ago</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">HOD review completed</p>
-                    <p className="text-xs text-muted-foreground">Mathematics department • 4 hours ago</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                  <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">Term switched to END</p>
-                    <p className="text-xs text-muted-foreground">Physics department • 1 day ago</p>
-                  </div>
-                </div>
+                {activities.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No recent activity</div>
+                ) : (
+                  activities.map((a) => (
+                    <div key={a.id} className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
+                      <div className={`w-2 h-2 rounded-full ${
+                        a.type === 'SELF_SUBMITTED' ? 'bg-green-500' :
+                        a.type === 'HOD_REVIEW' ? 'bg-blue-500' :
+                        a.type === 'TERM_UPDATE' ? 'bg-orange-500' : 'bg-gray-400'
+                      }`}></div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">{a.message}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {a.department ? `${a.department} • ` : ''}{new Date(a.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

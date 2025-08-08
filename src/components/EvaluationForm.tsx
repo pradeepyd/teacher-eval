@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 interface Question {
   id: string
@@ -26,6 +26,9 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
   const [canEdit, setCanEdit] = useState(true)
   const [fetchLoading, setFetchLoading] = useState(true)
   const [error, setError] = useState('')
+  const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const autosaveTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const latestPayloadRef = useRef<{ answers?: { questionId: string; answer: string }[]; selfComment?: string }>({})
 
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -57,6 +60,43 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
     fetchQuestions()
   }, [term])
 
+  useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    }
+  }, [])
+
+  const triggerAutosave = (partial: { answers?: { questionId: string; answer: string }[]; selfComment?: string | undefined }) => {
+    if (!canEdit) return
+    latestPayloadRef.current = {
+      answers: partial.answers,
+      selfComment: partial.selfComment,
+    }
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = setTimeout(async () => {
+      try {
+        setAutosaveStatus('saving')
+        const body: any = { term }
+        if (latestPayloadRef.current.answers) body.answers = latestPayloadRef.current.answers
+        if (typeof latestPayloadRef.current.selfComment === 'string') body.selfComment = latestPayloadRef.current.selfComment
+        if (body.answers || typeof body.selfComment === 'string') {
+          const res = await fetch('/api/teacher-answers', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          })
+          if (!res.ok) throw new Error('Autosave failed')
+          setAutosaveStatus('saved')
+          setTimeout(() => setAutosaveStatus('idle'), 1000)
+        } else {
+          setAutosaveStatus('idle')
+        }
+      } catch (e) {
+        setAutosaveStatus('error')
+      }
+    }, 600)
+  }
+
   const handleAnswerChange = (questionId: string, value: string) => {
     if (!canEdit) return
     
@@ -64,6 +104,8 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
       ...prev,
       [questionId]: value
     }))
+
+    triggerAutosave({ answers: [{ questionId, answer: value }], selfComment: undefined })
   }
 
   const handleCheckboxChange = (questionId: string, option: string, checked: boolean) => {
@@ -82,6 +124,8 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
       ...prev,
       [questionId]: newAnswers.join(', ')
     }))
+
+    triggerAutosave({ answers: [{ questionId, answer: newAnswers.join(', ') }], selfComment: undefined })
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -253,13 +297,21 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
               </p>
               <textarea
                 value={selfComment}
-                onChange={(e) => setSelfComment(e.target.value)}
+                onChange={(e) => {
+                  setSelfComment(e.target.value)
+                  triggerAutosave({ answers: undefined, selfComment: e.target.value })
+                }}
                 rows={6}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 placeholder="Share your thoughts, challenges, achievements, and goals..."
                 disabled={!canEdit}
                 required
               />
+              <div className="mt-2 text-xs text-gray-500 h-4">
+                {autosaveStatus === 'saving' && 'Saving...'}
+                {autosaveStatus === 'saved' && 'Saved'}
+                {autosaveStatus === 'error' && 'Auto-save failed'}
+              </div>
             </div>
           </div>
 
@@ -305,4 +357,12 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
       </div>
     </div>
   )
+}
+
+function debounce(fn: () => void, delay: number) {
+  let t: NodeJS.Timeout
+  return () => {
+    clearTimeout(t)
+    t = setTimeout(fn, delay)
+  }
 }

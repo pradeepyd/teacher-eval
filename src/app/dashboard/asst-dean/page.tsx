@@ -59,6 +59,25 @@ export default function AsstDeanDashboard() {
   const [success, setSuccess] = useState<string | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null)
+  const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
+
+  // HOD evaluation state
+  interface HodItem {
+    id: string
+    name: string
+    department?: { id: string; name: string } | null
+    existingReview?: {
+      comments: string
+      totalScore?: number | null
+      submitted: boolean
+    } | null
+    comments?: string
+    totalScore?: number
+  }
+  const [hods, setHods] = useState<HodItem[]>([])
+  const [hodTerm, setHodTerm] = useState<'START' | 'END'>("START")
+  const [hodLoading, setHodLoading] = useState(false)
+  const [hodSubmittingId, setHodSubmittingId] = useState<string | null>(null)
 
   // Fetch departments
   const fetchDepartments = async () => {
@@ -97,6 +116,20 @@ export default function AsstDeanDashboard() {
     }
   }
 
+  // Fetch active term for selected department
+  const fetchTermState = async () => {
+    if (!selectedDept) return
+    try {
+      const response = await fetch(`/api/departments/${selectedDept}/term-state`)
+      if (response.ok) {
+        const data = await response.json()
+        setActiveTerm(data.activeTerm || null)
+      }
+    } catch (e) {
+      // ignore; handled by null check on submit
+    }
+  }
+
   // Submit review for a teacher
   const submitReview = async (teacherId: string, comment: string, score: number) => {
     setSubmitting(true)
@@ -113,6 +146,7 @@ export default function AsstDeanDashboard() {
           teacherId,
           comment: comment.trim(),
           score,
+          term: activeTerm,
         })
       })
 
@@ -140,6 +174,74 @@ export default function AsstDeanDashboard() {
     }
   }
 
+  // HOD evaluation: fetch HODs for selected term
+  const fetchHods = async () => {
+    setHodLoading(true)
+    try {
+      const res = await fetch(`/api/reviews/asst-dean/hod?term=${hodTerm}`)
+      if (!res.ok) throw new Error('Failed to load HODs')
+      const data = await res.json()
+      const mapped: HodItem[] = (data.hods || []).map((h: any) => ({
+        id: h.id,
+        name: h.name,
+        department: h.department || null,
+        existingReview: h.hodPerformanceReviewsReceived?.[0]
+          ? {
+              comments: h.hodPerformanceReviewsReceived[0].comments,
+              totalScore: h.hodPerformanceReviewsReceived[0].totalScore,
+              submitted: h.hodPerformanceReviewsReceived[0].submitted,
+            }
+          : null,
+        comments: h.hodPerformanceReviewsReceived?.[0]?.comments || '',
+        totalScore: h.hodPerformanceReviewsReceived?.[0]?.totalScore || 0,
+      }))
+      setHods(mapped)
+    } catch (e) {
+      setError('Failed to load HODs')
+    } finally {
+      setHodLoading(false)
+    }
+  }
+
+  // HOD evaluation: submit one HOD review
+  const submitHodReview = async (hod: HodItem) => {
+    if (!hod.comments || hod.comments.trim().length === 0) {
+      setError('Please enter comments for the HOD')
+      return
+    }
+    if (!hod.totalScore || hod.totalScore < 1 || hod.totalScore > 100) {
+      setError('Please provide a total score between 1 and 100')
+      return
+    }
+    setHodSubmittingId(hod.id)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await fetch('/api/reviews/asst-dean/hod', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hodId: hod.id,
+          term: hodTerm,
+          comments: hod.comments.trim(),
+          scores: { totalScore: hod.totalScore },
+          totalScore: hod.totalScore,
+        }),
+      })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        throw new Error(e.error || 'Failed to submit HOD review')
+      }
+      setSuccess('HOD review submitted successfully')
+      // reflect submitted state locally
+      setHods(prev => prev.map(item => (item.id === hod.id ? { ...item, existingReview: { comments: hod.comments!, totalScore: hod.totalScore, submitted: true } } : item)))
+    } catch (e: any) {
+      setError(e.message || 'Failed to submit HOD review')
+    } finally {
+      setHodSubmittingId(null)
+    }
+  }
+
   // Update teacher data locally
   const updateTeacher = (teacherId: string, updates: Partial<Teacher>) => {
     setTeachers(prev => prev.map(t => 
@@ -149,6 +251,10 @@ export default function AsstDeanDashboard() {
 
   // Handle review submission
   const handleSubmit = (teacher: Teacher) => {
+    if (!activeTerm) {
+      setError('No active term set for the selected department')
+      return
+    }
     if (!teacher.asstDeanComment?.trim()) {
       setError('Please add a comment before submitting')
       return
@@ -180,8 +286,16 @@ export default function AsstDeanDashboard() {
   useEffect(() => {
     if (selectedDept) {
       fetchTeachers()
+      fetchTermState()
     }
   }, [selectedDept])
+
+  // Fetch HODs when hodTerm changes
+  useEffect(() => {
+    if (session?.user) {
+      fetchHods()
+    }
+  }, [session, hodTerm])
 
   if (!session?.user) {
     return (
@@ -374,6 +488,87 @@ export default function AsstDeanDashboard() {
           )}
 
           {/* Empty State */}
+          {/* HOD Evaluation */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Evaluate Heads of Department (HODs)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="w-48">
+                  <Select value={hodTerm} onValueChange={(v: any) => setHodTerm(v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="START">START</SelectItem>
+                      <SelectItem value="END">END</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {hodLoading && (
+                  <div className="text-sm text-gray-500 flex items-center"><Loader2 className="w-4 h-4 animate-spin mr-2"/>Loading HODs...</div>
+                )}
+              </div>
+
+              {!hodLoading && hods.length === 0 && (
+                <div className="text-sm text-gray-500">No HODs found.</div>
+              )}
+
+              {!hodLoading && hods.length > 0 && (
+                <div className="space-y-4">
+                  {hods.map(h => (
+                    <Card key={h.id}>
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-lg">{h.name}</CardTitle>
+                            <p className="text-sm text-gray-600">{h.department?.name || '—'}</p>
+                          </div>
+                          <Badge variant={h.existingReview?.submitted ? 'default' : 'secondary'}>
+                            {h.existingReview?.submitted ? 'Submitted' : 'Pending'}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div>
+                          <label className="text-sm font-medium">Comments</label>
+                          <Textarea
+                            placeholder="Enter your comments..."
+                            value={h.comments || ''}
+                            onChange={(e) => setHods(prev => prev.map(x => x.id === h.id ? { ...x, comments: e.target.value } : x))}
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium">Total Score (1-100)</label>
+                          <Input
+                            type="number"
+                            min="1"
+                            max="100"
+                            value={h.totalScore ?? 0}
+                            onChange={(e) => setHods(prev => prev.map(x => x.id === h.id ? { ...x, totalScore: parseInt(e.target.value) || 0 } : x))}
+                            className="mt-1 w-32"
+                          />
+                        </div>
+                        <Button
+                          onClick={() => submitHodReview(h)}
+                          disabled={hodSubmittingId === h.id}
+                          className="w-full"
+                        >
+                          {hodSubmittingId === h.id ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" /> Submitting...
+                            </>
+                          ) : 'Submit HOD Review'}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
           {selectedDept && !loading && teachers.length === 0 && (
             <Card>
               <CardContent className="pt-6">

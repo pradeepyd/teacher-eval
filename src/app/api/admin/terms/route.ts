@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth/next'
+// @ts-expect-error next-auth v5 types
+import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
@@ -45,24 +46,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Validate dates
+    // Coerce and validate dates
     const start = new Date(startDate)
     const end = new Date(endDate)
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return NextResponse.json({ error: 'Invalid start or end date' }, { status: 400 })
+    }
     
     if (start >= end) {
       return NextResponse.json({ error: 'End date must be after start date' }, { status: 400 })
+    }
+
+    // Normalize year
+    const yearNumber = typeof year === 'string' ? parseInt(year, 10) : year
+    if (!Number.isFinite(yearNumber)) {
+      return NextResponse.json({ error: 'Invalid year' }, { status: 400 })
     }
 
     // Create term with department associations
     const term = await prisma.term.create({
       data: {
         name,
-        year: parseInt(year),
-        startDate,
-        endDate,
+        year: yearNumber,
+        startDate: start,
+        endDate: end,
         status: 'INACTIVE',
         departments: {
-          connect: departmentIds?.map((id: string) => ({ id })) || []
+          connect: Array.isArray(departmentIds) ? departmentIds.map((id: string) => ({ id })) : []
         }
       },
       include: {

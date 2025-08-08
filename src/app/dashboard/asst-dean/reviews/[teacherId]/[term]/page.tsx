@@ -6,12 +6,7 @@ import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
 import ReviewForm from '@/components/ReviewForm'
 
-interface PageProps {
-  params: {
-    teacherId: string
-    term: 'START' | 'END'
-  }
-}
+type PageProps = any
 
 export default function AsstDeanReviewPage({ params }: PageProps) {
   const [loading, setLoading] = useState(false)

@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react'
 import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -67,7 +68,7 @@ export default function DepartmentsPage() {
         throw new Error('Failed to fetch departments')
       }
       const data = await response.json()
-      setDepartments(data)
+      setDepartments(data.departments || [])
     } catch (error) {
       console.error('Error fetching departments:', error)
       setError('Failed to load departments')
@@ -79,7 +80,7 @@ export default function DepartmentsPage() {
   // Fetch users
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/users')
+      const response = await fetch('/api/admin/users')
       if (!response.ok) {
         throw new Error('Failed to fetch users')
       }
@@ -147,12 +148,16 @@ export default function DepartmentsPage() {
     setSuccess(null)
 
     try {
+      // Collect current selections for reassignment
+      const hodId = selectedHod || undefined
+      const teacherIds = selectedTeachers
+
       const response = await fetch(`/api/departments/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ name: name.trim() })
+        body: JSON.stringify({ name: name.trim(), hodId, teacherIds })
       })
 
       if (!response.ok) {
@@ -163,6 +168,8 @@ export default function DepartmentsPage() {
       setSuccess('Department updated successfully!')
       setEditingId(null)
       setEditingName('')
+      setSelectedHod('')
+      setSelectedTeachers([])
       await fetchDepartments()
     } catch (error) {
       console.error('Error updating department:', error)
@@ -220,7 +227,8 @@ export default function DepartmentsPage() {
   }, [session])
 
   // Filter users for HOD and teachers
-  const hodOptions = users.filter(u => u.role === 'HOD' && !u.departmentId)
+  // Allow selecting either existing HODs or Teachers to promote to HOD
+  const hodOptions = users.filter(u => u.role === 'HOD' || u.role === 'TEACHER')
   const teacherOptions = users.filter(u => u.role === 'TEACHER' && !u.departmentId)
 
   if (!session?.user) {
@@ -410,153 +418,192 @@ export default function DepartmentsPage() {
                   <span>Loading departments...</span>
                 </div>
               ) : departments.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Department Name</TableHead>
-                      <TableHead>HOD</TableHead>
-                      <TableHead>Users</TableHead>
-                      <TableHead>Active Term</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {departments.map((department) => (
-                      <TableRow key={department.id} className="hover:bg-muted/50">
-                        <TableCell>
-                          {editingId === department.id ? (
-                            <div className="flex items-center gap-2">
-                              <Input
-                                type="text"
-                                value={editingName}
-                                onChange={(e) => setEditingName(e.target.value)}
-                                className="h-8"
-                                autoFocus
-                                disabled={submitting}
-                              />
+                <div className="divide-y">
+                  {departments.map((department) => {
+                    const hasHod = !!department.hod?.name
+                    const teacherCount = department._count.users
+                    const status: 'Active' | 'Pending' = hasHod && teacherCount > 0 ? 'Active' : 'Pending'
+                    const initials = (department.hod?.name || 'NA')
+                      .split(' ')
+                      .map((p) => p[0])
+                      .join('')
+                      .slice(0, 2)
+                      .toUpperCase()
+
+                    return (
+                      <div key={department.id} className="py-4 hover:bg-muted/50 rounded-md px-2">
+                        <div className="flex items-center justify-between">
+                        {/* Department */}
+                        <div className="flex items-center gap-3 min-w-[260px]">
+                          <div className="size-10 rounded-lg bg-blue-100 text-blue-700 grid place-items-center">🏷️</div>
+                          <div>
+                            <div className="font-medium">{department.name}</div>
+                            <div className="text-xs text-muted-foreground">{department.name} Department</div>
+                          </div>
+                        </div>
+
+                        {/* HOD */}
+                        <div className="flex items-center gap-3 min-w-[240px]">
+                          <div className="size-9 rounded-full bg-gray-100 text-gray-700 grid place-items-center text-sm">
+                            {hasHod ? initials : '—'}
+                          </div>
+                          <div className="text-sm">
+                            <div className="font-medium text-gray-900">{department.hod?.name || 'No HOD Assigned'}</div>
+                            {hasHod && (
+                              <Badge className="px-2 py-0 h-5 text-xs" variant="secondary">HOD</Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Teachers */}
+                        <div className="flex items-center gap-3 min-w-[180px]">
+                          <Badge variant="outline" className="text-sm px-3 py-1">{teacherCount} Teachers</Badge>
+                          <Link href={`/admin/users?departmentId=${department.id}&role=TEACHER`} className="text-blue-600 text-sm hover:underline">View All</Link>
+                        </div>
+
+                        {/* Status */}
+                          <div className="flex items-center gap-2 min-w-[180px] justify-end">
+                            <Badge className={status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
+                              {status}
+                            </Badge>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => startEdit(department)}
+                              disabled={submitting}
+                              className="h-8 w-8 p-0"
+                              aria-label="Edit Department"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={submitting || deletingId === department.id}
+                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                  aria-label="Delete Department"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This action cannot be undone. This will permanently delete the department
+                                    &quot;{department.name}&quot; and remove all associated data.
+                                    {teacherCount > 0 && (
+                                      <span className="block mt-2 text-destructive font-medium">
+                                        Warning: This department has {teacherCount} users. 
+                                        You must reassign or delete users first.
+                                      </span>
+                                    )}
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => deleteDepartment(department.id)}
+                                    disabled={submitting}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    {submitting ? (
+                                      <>
+                                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                        Deleting...
+                                      </>
+                                    ) : (
+                                      'Delete Department'
+                                    )}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </div>
+
+                        {editingId === department.id && (
+                          <div className="mt-3 rounded-md border bg-white p-3">
+                            <div className="grid gap-3 md:grid-cols-3">
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Department Name</label>
+                                <Input
+                                  type="text"
+                                  value={editingName}
+                                  onChange={(e) => setEditingName(e.target.value)}
+                                  disabled={submitting}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Reassign HOD</label>
+                                <Select value={selectedHod} onValueChange={setSelectedHod} disabled={submitting}>
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select HOD" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {hodOptions.map(hod => (
+                                      <SelectItem key={hod.id} value={hod.id}>{hod.name}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Assign Teachers</label>
+                                <div className="max-h-32 overflow-y-auto border rounded p-2">
+                                  {teacherOptions.map(teacher => (
+                                    <div key={teacher.id} className="flex items-center space-x-2 py-0.5">
+                                      <input
+                                        type="checkbox"
+                                        id={`reassign-${department.id}-${teacher.id}`}
+                                        checked={selectedTeachers.includes(teacher.id)}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setSelectedTeachers(prev => [...prev, teacher.id])
+                                          } else {
+                                            setSelectedTeachers(prev => prev.filter(id => id !== teacher.id))
+                                          }
+                                        }}
+                                        disabled={submitting}
+                                        className="rounded"
+                                      />
+                                      <label htmlFor={`reassign-${department.id}-${teacher.id}`} className="text-xs">
+                                        {teacher.name}
+                                      </label>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex items-center gap-2 justify-end">
                               <Button
                                 size="sm"
-                                variant="ghost"
-                                onClick={() => updateDepartment(department.id, editingName)}
-                                disabled={!editingName.trim() || submitting}
-                                className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
-                              >
-                                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
+                                variant="outline"
                                 onClick={cancelEdit}
                                 disabled={submitting}
-                                className="h-8 w-8 p-0 text-gray-600 hover:text-gray-700"
                               >
-                                <X className="h-4 w-4" />
+                                Cancel
                               </Button>
-                            </div>
-                          ) : (
-                            <div className="font-medium">{department.name}</div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-sm text-muted-foreground">{department.hod?.name || '—'}</span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm">{department._count.users}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge 
-                            variant={
-                              department.termState?.activeTerm === 'START' 
-                                ? 'default' 
-                                : department.termState?.activeTerm === 'END'
-                                ? 'secondary'
-                                : 'outline'
-                            }
-                            className={
-                              department.termState?.activeTerm === 'START'
-                                ? 'bg-green-100 text-green-800 hover:bg-green-100'
-                                : department.termState?.activeTerm === 'END'
-                                ? 'bg-blue-100 text-blue-800 hover:bg-blue-100'
-                                : ''
-                            }
-                          >
-                            {department.termState?.activeTerm || 'Not Set'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-sm text-muted-foreground">
-                            {new Date(department.createdAt).toLocaleDateString()}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {editingId === department.id ? (
-                            <span className="text-sm text-muted-foreground">Editing...</span>
-                          ) : (
-                            <div className="flex items-center justify-end gap-2">
                               <Button
                                 size="sm"
-                                variant="ghost"
-                                onClick={() => startEdit(department)}
-                                disabled={submitting}
-                                className="h-8 w-8 p-0"
+                                onClick={() => updateDepartment(department.id, editingName)}
+                                disabled={!editingName.trim() || submitting}
                               >
-                                <Edit2 className="h-4 w-4" />
+                                {submitting ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    Saving...
+                                  </>
+                                ) : 'Save Changes'}
                               </Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    disabled={submitting || deletingId === department.id}
-                                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This action cannot be undone. This will permanently delete the department
-                                      &quot;{department.name}&quot; and remove all associated data.
-                                      {department._count.users > 0 && (
-                                        <span className="block mt-2 text-destructive font-medium">
-                                          Warning: This department has {department._count.users} users. 
-                                          You must reassign or delete users first.
-                                        </span>
-                                      )}
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() => deleteDepartment(department.id)}
-                                      disabled={submitting}
-                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    >
-                                      {submitting ? (
-                                        <>
-                                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                          Deleting...
-                                        </>
-                                      ) : (
-                                        'Delete Department'
-                                      )}
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
                             </div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               ) : (
                 <div className="text-center py-12">
                   <Building2 className="mx-auto h-12 w-12 text-muted-foreground" />

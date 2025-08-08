@@ -63,6 +63,7 @@ export default function DeanDashboard() {
   const [success, setSuccess] = useState<string | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null)
+  const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
 
   // Fetch departments
   const fetchDepartments = async () => {
@@ -104,6 +105,20 @@ export default function DeanDashboard() {
     }
   }
 
+  // Fetch active term for selected department
+  const fetchTermState = async () => {
+    if (!selectedDept) return
+    try {
+      const response = await fetch(`/api/departments/${selectedDept}/term-state`)
+      if (response.ok) {
+        const data = await response.json()
+        setActiveTerm(data.activeTerm || null)
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
   // Submit final review for a teacher
   const submitFinalReview = async (teacherId: string, comment: string, finalScore: number, promoted: boolean) => {
     setSubmitting(true)
@@ -119,8 +134,9 @@ export default function DeanDashboard() {
         body: JSON.stringify({
           teacherId,
           comment: comment.trim(),
-          finalScore,
+          score: finalScore,
           promoted,
+          term: activeTerm,
         })
       })
 
@@ -157,6 +173,10 @@ export default function DeanDashboard() {
 
   // Handle final review submission
   const handleSubmit = (teacher: Teacher) => {
+    if (!activeTerm) {
+      setError('No active term set for the selected department')
+      return
+    }
     if (!teacher.deanComment?.trim()) {
       setError('Please add final comments before submitting')
       return
@@ -200,6 +220,7 @@ export default function DeanDashboard() {
   useEffect(() => {
     if (selectedDept) {
       fetchTeachers()
+      fetchTermState()
     }
   }, [selectedDept])
 
@@ -395,7 +416,7 @@ export default function DeanDashboard() {
                                     disabled={!teacher.canReview}
                                   />
                                   <label htmlFor={`promotion-${teacher.id}`} className="text-sm font-medium">
-                                    Recommend for Promotion
+                                    {teacher.promoted ? 'Status: PROMOTED' : 'Status: ON_HOLD'}
                                   </label>
                                 </div>
                                 

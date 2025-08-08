@@ -6,60 +6,76 @@ import { prisma } from '@/lib/prisma'
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    
-    if (!session || !['DEAN', 'ASST_DEAN', 'ADMIN'].includes(session.user.role)) {
+    if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const { searchParams } = new URL(request.url)
     const departmentId = searchParams.get('departmentId')
-    const role = searchParams.get('role')
+    const requestedRole = searchParams.get('role')
     const year = searchParams.get('year')
     const format = searchParams.get('format') || 'json'
 
-    // Build where clause
-    const whereClause: any = {
-      role: 'TEACHER'
+    // Build where clause for users based on role
+    const whereClause: any = {}
+
+    // Role scoping
+    const userRole = session.user.role
+    if (userRole === 'ADMIN' || userRole === 'DEAN' || userRole === 'ASST_DEAN') {
+      // Full visibility
+      whereClause.role = 'TEACHER'
+    } else if (userRole === 'HOD') {
+      // Only teachers in their department
+      whereClause.role = 'TEACHER'
+      whereClause.departmentId = session.user.departmentId
+    } else if (userRole === 'TEACHER') {
+      // Only self
+      whereClause.id = session.user.id
+    } else {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     if (departmentId && departmentId !== 'ALL') {
       whereClause.departmentId = departmentId
     }
 
-    if (role && role !== 'ALL') {
-      whereClause.role = role
+    // Optional additional role filter (for admin/dean/asst only)
+    if (requestedRole && requestedRole !== 'ALL') {
+      // Do not allow narrowing away from TEACHER for HOD/TEACHER scopes
+      if (userRole === 'ADMIN' || userRole === 'DEAN' || userRole === 'ASST_DEAN') {
+        whereClause.role = requestedRole
+      }
     }
 
-    // Get teachers with their evaluation data
+    // If year filter provided, get matching term ids (any status)
+    let termIds: string[] | undefined
+    if (year && year !== 'ALL') {
+      const terms = await prisma.term.findMany({ where: { year: Number(year) } })
+      termIds = terms.map(t => t.id)
+    }
+
     const teachers = await prisma.user.findMany({
       where: whereClause,
       include: {
         department: true,
         teacherAnswers: {
-          include: {
-            question: true
-          }
+          where: termIds ? { termId: { in: termIds } } : undefined,
+          include: { question: true }
         },
-        selfComments: true,
+        selfComments: termIds ? { where: { termId: { in: termIds } } } : true,
         receivedHodReviews: {
-          where: {
-            submitted: true
-          }
+          where: { submitted: true, ...(termIds ? { termId: { in: termIds } } : {}) }
         },
         receivedAsstReviews: {
-          where: {
-            submitted: true
-          }
+          where: { submitted: true, ...(termIds ? { termId: { in: termIds } } : {}) }
         },
-        receivedFinalReviews: {
-          where: {
-            submitted: true
-          }
-        }
+        receivedFinalReviews: termIds ? { where: { termId: { in: termIds } } } : true,
       }
     })
 
     // Transform data for reports
+    const effectiveYear = year && year !== 'ALL' ? Number(year) : new Date().getFullYear()
+
     const results = teachers.map(teacher => {
       const startAnswers = teacher.teacherAnswers.filter(a => a.term === 'START')
       const endAnswers = teacher.teacherAnswers.filter(a => a.term === 'END')
@@ -79,7 +95,7 @@ export async function GET(request: NextRequest) {
         role: teacher.role,
         department: teacher.department.name,
         departmentId: teacher.department.id,
-        year: new Date().getFullYear(),
+        year: effectiveYear,
         terms: {
           START: {
             hasSubmitted: startAnswers.length > 0 && startSelfComment,
@@ -119,14 +135,9 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Filter by year if specified
-    const filteredResults = year && year !== 'ALL' 
-      ? results.filter(r => r.year.toString() === year)
-      : results
-
     const summary = {
-      totalTeachers: filteredResults.length,
-      departmentsIncluded: [...new Set(filteredResults.map(r => r.department))],
+      totalTeachers: results.length,
+      departmentsIncluded: [...new Set(results.map(r => r.department))],
       termsIncluded: ['START', 'END'],
       generatedAt: new Date().toISOString(),
       generatedBy: session.user.name || session.user.email
@@ -149,7 +160,7 @@ export async function GET(request: NextRequest) {
         'Performance %'
       ]
 
-      const csvRows = filteredResults.flatMap(teacher => 
+      const csvRows = results.flatMap(teacher => 
         Object.entries(teacher.terms).map(([term, data]) => [
           teacher.name,
           teacher.email,
@@ -179,10 +190,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({
-      results: filteredResults,
-      summary
-    })
+    return NextResponse.json({ results, summary })
   } catch (error) {
     console.error('Error generating report:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

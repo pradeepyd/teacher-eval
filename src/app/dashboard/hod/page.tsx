@@ -58,12 +58,14 @@ export default function HodDashboard() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
 
   // Question form state
   const [newQuestion, setNewQuestion] = useState({
     question: '',
     type: 'TEXT' as 'TEXT' | 'TEXTAREA' | 'MCQ' | 'CHECKBOX',
     options: [''],
+    optionScores: [0] as number[],
     required: false,
   })
 
@@ -97,9 +99,28 @@ export default function HodDashboard() {
     }
   }
 
+  // Fetch active term for HOD department
+  const fetchTermState = async () => {
+    const deptId = (session as any)?.user?.departmentId
+    if (!deptId) return
+    try {
+      const response = await fetch(`/api/departments/${deptId}/term-state`)
+      if (response.ok) {
+        const data = await response.json()
+        setActiveTerm(data.activeTerm || null)
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
   // Add new question
   const addQuestion = async () => {
     if (!newQuestion.question.trim()) return
+    if (!activeTerm) {
+      setError('No active term set for your department')
+      return
+    }
 
     setLoading(true)
     setError(null)
@@ -113,8 +134,12 @@ export default function HodDashboard() {
         body: JSON.stringify({
           question: newQuestion.question.trim(),
           type: newQuestion.type,
+          term: activeTerm,
           options: (newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX') 
             ? newQuestion.options.filter(opt => opt.trim()) 
+            : [],
+          optionScores: (newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX')
+            ? newQuestion.optionScores.slice(0, newQuestion.options.length)
             : [],
           required: newQuestion.required,
         })
@@ -130,6 +155,7 @@ export default function HodDashboard() {
         question: '',
         type: 'TEXT' as 'TEXT' | 'TEXTAREA' | 'MCQ' | 'CHECKBOX',
         options: [''],
+        optionScores: [0],
         required: false,
       })
       
@@ -181,6 +207,10 @@ export default function HodDashboard() {
   const submitTeacherEvaluation = async (teacherId: string) => {
     const teacher = teachers.find(t => t.id === teacherId)
     if (!teacher) return
+    if (!activeTerm) {
+      setError('No active term set for your department')
+      return
+    }
 
     setLoading(true)
     setError(null)
@@ -195,6 +225,7 @@ export default function HodDashboard() {
           teacherId: teacherId,
           comment: teacher.hodComment,
           score: teacher.hodScore,
+          term: activeTerm,
         })
       })
 
@@ -224,6 +255,7 @@ export default function HodDashboard() {
     if (session?.user) {
       fetchQuestions()
       fetchTeachers()
+      fetchTermState()
     }
   }, [session])
 
@@ -343,9 +375,9 @@ export default function HodDashboard() {
 
                   {(newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX') && (
                     <div>
-                      <label className="block text-sm font-medium mb-2">Options</label>
+                      <label className="block text-sm font-medium mb-2">Options and Weights</label>
                       {newQuestion.options.map((option, index) => (
-                        <div key={index} className="flex gap-2 mb-2">
+                        <div key={index} className="flex gap-2 mb-2 items-center">
                           <Input
                             value={option}
                             onChange={(e) => {
@@ -354,6 +386,18 @@ export default function HodDashboard() {
                               setNewQuestion({ ...newQuestion, options: newOptions })
                             }}
                             placeholder={`Option ${index + 1}`}
+                            className="flex-1"
+                          />
+                          <Input
+                            type="number"
+                            value={newQuestion.optionScores[index] ?? 0}
+                            onChange={(e) => {
+                              const scores = [...newQuestion.optionScores]
+                              scores[index] = parseInt(e.target.value) || 0
+                              setNewQuestion({ ...newQuestion, optionScores: scores })
+                            }}
+                            className="w-24"
+                            placeholder="Weight"
                           />
                           {newQuestion.options.length > 1 && (
                             <Button
@@ -361,7 +405,8 @@ export default function HodDashboard() {
                               size="sm"
                               onClick={() => {
                                 const newOptions = newQuestion.options.filter((_, i) => i !== index)
-                                setNewQuestion({ ...newQuestion, options: newOptions })
+                                const newScores = newQuestion.optionScores.filter((_, i) => i !== index)
+                                setNewQuestion({ ...newQuestion, options: newOptions, optionScores: newScores })
                               }}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -374,7 +419,8 @@ export default function HodDashboard() {
                         size="sm"
                         onClick={() => setNewQuestion({
                           ...newQuestion,
-                          options: [...newQuestion.options, '']
+                          options: [...newQuestion.options, ''],
+                          optionScores: [...newQuestion.optionScores, 0],
                         })}
                       >
                         <Plus className="h-4 w-4 mr-1" />

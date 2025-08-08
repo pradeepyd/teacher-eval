@@ -133,6 +133,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'HOD review not completed' }, { status: 400 })
     }
 
+    // Resolve termId for linkage
+    const termRecord = await prisma.term.findFirst({ where: { year: new Date().getFullYear() }, select: { id: true } })
+
     // Create or update Assistant Dean review
     const review = await prisma.asstReview.upsert({
       where: {
@@ -145,7 +148,8 @@ export async function POST(request: NextRequest) {
         comments: comment,
         scores: { totalScore: score },
         submitted: true,
-        reviewerId: session.user.id
+        reviewerId: session.user.id,
+        termId: termRecord?.id || null
       },
       create: {
         teacherId,
@@ -153,7 +157,8 @@ export async function POST(request: NextRequest) {
         comments: comment,
         scores: { totalScore: score },
         submitted: true,
-        reviewerId: session.user.id
+        reviewerId: session.user.id,
+        termId: termRecord?.id || null
       }
     })
 

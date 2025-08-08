@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> } | { params: { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -14,8 +14,9 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
     const department = await prisma.department.findUnique({
-      where: { id: params.id },
+      where: { id: resolved.id },
       include: {
         termState: true,
         _count: {
@@ -39,7 +40,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> } | { params: { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -48,20 +49,48 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { name } = await request.json()
+    const { name, hodId, teacherIds } = await request.json()
 
     if (!name || typeof name !== 'string') {
       return NextResponse.json({ error: 'Department name is required' }, { status: 400 })
     }
 
-    const department = await prisma.department.update({
-      where: { id: params.id },
-      data: {
-        name: name.trim()
+    const trimmedName = name.trim()
+
+    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
+    const result = await prisma.$transaction(async (tx) => {
+      // Update department name
+      const department = await tx.department.update({
+        where: { id: resolved.id },
+        data: { name: trimmedName }
+      })
+
+      // Reassign or promote HOD if provided
+      if (hodId) {
+        // Clear any existing HOD in this department
+        await tx.user.updateMany({
+          where: { departmentId: resolved.id, role: 'HOD' },
+          data: { departmentId: null }
+        })
+        // Assign selected user to this department and ensure role is HOD
+        await tx.user.update({
+          where: { id: hodId },
+          data: { departmentId: resolved.id, role: 'HOD' as any }
+        })
       }
+
+      // Assign teachers if provided (only assign teachers without department)
+      if (Array.isArray(teacherIds)) {
+        await tx.user.updateMany({
+          where: { id: { in: teacherIds }, role: 'TEACHER' },
+          data: { departmentId: resolved.id }
+        })
+      }
+
+      return department
     })
 
-    return NextResponse.json(department)
+    return NextResponse.json(result)
   } catch (error) {
     console.error('Error updating department:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -70,7 +99,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> } | { params: { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -80,8 +109,9 @@ export async function DELETE(
     }
 
     // Check if department has users
+    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
     const department = await prisma.department.findUnique({
-      where: { id: params.id },
+      where: { id: resolved.id },
       include: {
         _count: {
           select: {
@@ -102,7 +132,7 @@ export async function DELETE(
     }
 
     await prisma.department.delete({
-      where: { id: params.id }
+      where: { id: resolved.id }
     })
 
     return NextResponse.json({ message: 'Department deleted successfully' })

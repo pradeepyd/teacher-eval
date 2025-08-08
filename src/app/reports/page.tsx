@@ -127,7 +127,10 @@ export default function ReportsPage() {
 
       const data = await response.json()
       setResultsData(data)
-      setSuccess('Report generated successfully!')
+      // Only show success if user explicitly generated via button
+      if (manualTriggerRef.current) {
+        setSuccess('Report generated successfully!')
+      }
     } catch (error) {
       console.error('Error fetching results:', error)
       setError(error instanceof Error ? error.message : 'Failed to fetch results')
@@ -234,10 +237,20 @@ export default function ReportsPage() {
   }
 
   // Load data on component mount
+  // Track manual trigger to avoid showing success on first load
+  const manualTriggerRef = { current: false } as { current: boolean }
+
   useEffect(() => {
     if (session?.user) {
       if (session.user.role === 'DEAN' || session.user.role === 'ASST_DEAN' || session.user.role === 'ADMIN') {
         fetchDepartments()
+      }
+      // Scope UI controls by role
+      if (session.user.role === 'HOD') {
+        setSelectedRole('TEACHER')
+      }
+      if (session.user.role === 'TEACHER') {
+        setSelectedRole('TEACHER')
       }
       fetchResults()
     }
@@ -329,6 +342,7 @@ export default function ReportsPage() {
                 )}
 
                 {/* Role Filter */}
+                {(session?.user?.role !== 'TEACHER') && (
                 <div>
                   <label className="text-sm font-medium mb-2 block">Role</label>
                   <Select value={selectedRole} onValueChange={setSelectedRole}>
@@ -342,6 +356,7 @@ export default function ReportsPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                )}
 
                 {/* Year Filter */}
                 <div>
@@ -375,7 +390,7 @@ export default function ReportsPage() {
               </div>
 
               <div className="flex justify-between items-center mt-4">
-                <Button onClick={fetchResults} disabled={loading}>
+                <Button onClick={() => { manualTriggerRef.current = true; fetchResults().finally(() => { manualTriggerRef.current = false }) }} disabled={loading}>
                   {loading ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
