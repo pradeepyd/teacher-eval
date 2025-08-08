@@ -51,6 +51,10 @@ model User {
   name         String
   role         Role
   departmentId String?  // Optional for ADMIN
+  emailVerified DateTime?
+  failedLogins  Int      @default(0)
+  lastLogin     DateTime?
+  lockedUntil   DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -61,6 +65,9 @@ model User {
   hodReviews      HodReview[]      @relation("HODReviewer")
   asstReviews     AsstReview[]     @relation("AsstReviewer")
   finalReviews    FinalReview[]    @relation("FinalReviewer")
+  // HOD performance reviews
+  hodPerformanceReviewsReceived HodPerformanceReview[] @relation("HODPerformanceSubject")
+  hodPerformanceReviewsGiven    HodPerformanceReview[] @relation("HODPerformanceReviewer")
   
   // Reviews received (when user is a teacher)
   receivedHodReviews   HodReview[]   @relation("TeacherReviewed")
@@ -97,6 +104,12 @@ model Term {
 
   // Relations
   departments Department[] @relation("DepartmentTerms")
+  teacherAnswers TeacherAnswer[]
+  selfComments   SelfComment[]
+  hodReviews     HodReview[]
+  asstReviews    AsstReview[]
+  finalReviews   FinalReview[]
+  hodPerformanceReviews HodPerformanceReview[]
 
   @@map("terms")
 }
@@ -121,6 +134,7 @@ model Question {
   type         QuestionType
   question     String
   options      String[]     // For MCQ and Checkbox only
+  optionScores Int[]        @default([]) // Optional weights aligned with options
   order        Int          @default(0)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -138,12 +152,14 @@ model TeacherAnswer {
   questionId String
   term       TermType
   answer     String
+  termId     String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   // Relations
   teacher  User     @relation(fields: [teacherId], references: [id])
   question Question @relation(fields: [questionId], references: [id])
+  termRef  Term?    @relation(fields: [termId], references: [id])
 
   @@unique([teacherId, questionId, term])
   @@map("teacher_answers")
@@ -154,11 +170,13 @@ model SelfComment {
   teacherId String
   term      TermType
   comment   String
+  termId    String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
   teacher User @relation(fields: [teacherId], references: [id])
+  termRef Term? @relation(fields: [termId], references: [id])
 
   @@unique([teacherId, term])
   @@map("self_comments")
@@ -172,12 +190,14 @@ model HodReview {
   comments   String
   scores     Json     // { questionId: score, ... }
   submitted  Boolean  @default(false)
+  termId     String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   // Relations
   teacher  User @relation("TeacherReviewed", fields: [teacherId], references: [id])
   reviewer User @relation("HODReviewer", fields: [reviewerId], references: [id])
+  termRef  Term? @relation(fields: [termId], references: [id])
 
   @@unique([teacherId, term])
   @@map("hod_reviews")
@@ -191,12 +211,14 @@ model AsstReview {
   comments   String
   scores     Json     // { questionId: score, ... }
   submitted  Boolean  @default(false)
+  termId     String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   // Relations
   teacher  User @relation("TeacherReviewed", fields: [teacherId], references: [id])
   reviewer User @relation("AsstReviewer", fields: [reviewerId], references: [id])
+  termRef  Term? @relation(fields: [termId], references: [id])
 
   @@unique([teacherId, term])
   @@map("asst_reviews")
@@ -211,13 +233,38 @@ model FinalReview {
   finalScore   Int
   status       ReviewStatus
   submitted    Boolean      @default(false)
+  termId       String?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
   // Relations
   teacher  User @relation("TeacherReviewed", fields: [teacherId], references: [id])
   reviewer User @relation("FinalReviewer", fields: [reviewerId], references: [id])
+  termRef  Term? @relation(fields: [termId], references: [id])
 
   @@unique([teacherId, term])
   @@map("final_reviews")
+}
+
+// Assistant Dean evaluates HOD performance (rubric stored in scores JSON)
+model HodPerformanceReview {
+  id         String   @id @default(cuid())
+  hodId      String
+  term       TermType
+  reviewerId String
+  comments   String
+  scores     Json
+  totalScore Int?
+  submitted  Boolean  @default(false)
+  termId     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  hod      User @relation("HODPerformanceSubject", fields: [hodId], references: [id])
+  reviewer User @relation("HODPerformanceReviewer", fields: [reviewerId], references: [id])
+  termRef  Term? @relation(fields: [termId], references: [id])
+
+  @@unique([hodId, term])
+  @@map("hod_performance_reviews")
 }
