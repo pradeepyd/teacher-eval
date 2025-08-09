@@ -69,23 +69,12 @@ export default function LoginPage() {
         email: formData.email,
         password: formData.password,
         departmentId: formData.departmentId || null,
-        redirect: false,
+        redirect: true,
+        callbackUrl: '/', // middleware will route by role
       });
 
-      if (result?.error) {
+      if ((result as any)?.error) {
         toast.error('Invalid credentials');
-      } else {
-        const session = await getSession();
-        if (session?.user && 'role' in session.user) {
-          const role = (session.user as any).role;
-          router.push(
-            role === 'TEACHER' ? '/dashboard/teacher' :
-            role === 'HOD' ? '/dashboard/hod' :
-            role === 'ASST_DEAN' ? '/dashboard/asst-dean' :
-            role === 'DEAN' ? '/dashboard/dean' :
-            role === 'ADMIN' ? '/admin' : '/dashboard'
-          );
-        }
       }
     } catch (error) {
       toast.error('An error occurred during login');

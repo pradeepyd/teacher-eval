@@ -8,6 +8,17 @@ export default withAuth(
 
   // Public routes that don't require authentication
   if (pathname === '/login') {
+      // If already authenticated, send user to their dashboard by role
+      if (token?.role) {
+        const role = token.role as string
+        const target = role === 'TEACHER' ? '/dashboard/teacher'
+          : role === 'HOD' ? '/dashboard/hod'
+          : role === 'ASST_DEAN' ? '/dashboard/asst-dean'
+          : role === 'DEAN' ? '/dashboard/dean'
+          : role === 'ADMIN' ? '/admin'
+          : '/dashboard'
+        return NextResponse.redirect(new URL(target, req.url))
+      }
       return NextResponse.next()
     }
 
@@ -40,8 +51,8 @@ export default withAuth(
       return NextResponse.redirect(new URL('/unauthorized', req.url))
     }
 
-    // Redirect users to their appropriate dashboard if they access generic /dashboard
-    if (pathname === '/dashboard') {
+    // Redirect users to their appropriate dashboard if they access generic / or /dashboard
+    if (pathname === '/' || pathname === '/dashboard') {
       switch (userRole) {
         case 'TEACHER':
           return NextResponse.redirect(new URL('/dashboard/teacher', req.url))
