@@ -119,6 +119,7 @@ model TermState {
   departmentId String   @unique
   activeTerm   TermType
   visibility   String   @default("DRAFT") // DRAFT or PUBLISHED for active term visibility
+  hodVisibility String  @default("DRAFT") // DRAFT or PUBLISHED for HOD evaluation publish
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -136,6 +137,7 @@ model Question {
   question     String
   options      String[]     // For MCQ and Checkbox only
   optionScores Int[]        @default([]) // Optional weights aligned with options
+  isActive     Boolean      @default(true)
   order        Int          @default(0)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -267,6 +269,6 @@ model HodPerformanceReview {
   reviewer User @relation("HODPerformanceReviewer", fields: [reviewerId], references: [id])
   termRef  Term? @relation(fields: [termId], references: [id])
 
-  @@unique([hodId, term])
+  @@unique([hodId, term, reviewerId])
   @@map("hod_performance_reviews")
 }

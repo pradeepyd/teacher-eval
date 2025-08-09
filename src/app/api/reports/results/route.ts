@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -93,22 +94,22 @@ export async function GET(request: NextRequest) {
         name: teacher.name,
         email: teacher.email,
         role: teacher.role,
-        department: teacher.department.name,
-        departmentId: teacher.department.id,
+        department: teacher.department?.name || 'N/A',
+        departmentId: teacher.department?.id || '',
         year: effectiveYear,
         terms: {
           START: {
             hasSubmitted: startAnswers.length > 0 && startSelfComment,
             questionsAnswered: startAnswers.length,
             maxQuestions: startAnswers.length,
-            hodScore: startHodReview?.scores?.totalScore || 0,
-            asstScore: startAsstReview?.scores?.totalScore || 0,
+            hodScore: (startHodReview?.scores as any)?.totalScore || 0,
+            asstScore: (startAsstReview?.scores as any)?.totalScore || 0,
             finalScore: startFinalReview?.finalScore || 0,
             maxPossibleScore: startAnswers.length * 10,
             status: startFinalReview?.status || 'PENDING',
-            hodReviewer: startHodReview?.reviewer?.name || null,
-            asstReviewer: startAsstReview?.reviewer?.name || null,
-            deanReviewer: startFinalReview?.reviewer?.name || null,
+            hodReviewer: startHodReview?.reviewerId || null,
+            asstReviewer: startAsstReview?.reviewerId || null,
+            deanReviewer: startFinalReview?.reviewerId || null,
             submittedAt: startSelfComment?.createdAt || null,
             hodReviewedAt: startHodReview?.createdAt || null,
             asstReviewedAt: startAsstReview?.createdAt || null,
@@ -118,14 +119,14 @@ export async function GET(request: NextRequest) {
             hasSubmitted: endAnswers.length > 0 && endSelfComment,
             questionsAnswered: endAnswers.length,
             maxQuestions: endAnswers.length,
-            hodScore: endHodReview?.scores?.totalScore || 0,
-            asstScore: endAsstReview?.scores?.totalScore || 0,
+            hodScore: (endHodReview?.scores as any)?.totalScore || 0,
+            asstScore: (endAsstReview?.scores as any)?.totalScore || 0,
             finalScore: endFinalReview?.finalScore || 0,
             maxPossibleScore: endAnswers.length * 10,
             status: endFinalReview?.status || 'PENDING',
-            hodReviewer: endHodReview?.reviewer?.name || null,
-            asstReviewer: endAsstReview?.reviewer?.name || null,
-            deanReviewer: endFinalReview?.reviewer?.name || null,
+            hodReviewer: endHodReview?.reviewerId || null,
+            asstReviewer: endAsstReview?.reviewerId || null,
+            deanReviewer: endFinalReview?.reviewerId || null,
             submittedAt: endSelfComment?.createdAt || null,
             hodReviewedAt: endHodReview?.createdAt || null,
             asstReviewedAt: endAsstReview?.createdAt || null,
@@ -190,7 +191,22 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({ results, summary })
+    // Add band classification in JSON too
+    const withBands = results.map(r => ({
+      ...r,
+      terms: {
+        START: {
+          ...r.terms.START,
+          band: (() => { const p = r.terms.START.maxPossibleScore > 0 ? Math.round((r.terms.START.finalScore / r.terms.START.maxPossibleScore) * 100) : 0; return p>=90?'Excellent':p>=80?'Very Good':p>=70?'Good':p>=50?'Average':'Weak' })()
+        },
+        END: {
+          ...r.terms.END,
+          band: (() => { const p = r.terms.END.maxPossibleScore > 0 ? Math.round((r.terms.END.finalScore / r.terms.END.maxPossibleScore) * 100) : 0; return p>=90?'Excellent':p>=80?'Very Good':p>=70?'Good':p>=50?'Average':'Weak' })()
+        }
+      }
+    }))
+
+    return NextResponse.json({ results: withBands, summary })
   } catch (error) {
     console.error('Error generating report:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

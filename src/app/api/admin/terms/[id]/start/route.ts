@@ -5,8 +5,8 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function POST(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> } | { params: { id: string } }
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session: any = await getServerSession(authOptions as any)
@@ -16,7 +16,7 @@ export async function POST(
     }
 
     // Check if term exists
-    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
+    const resolved = await params
     const term = await prisma.term.findUnique({
       where: { id: resolved.id },
       include: {

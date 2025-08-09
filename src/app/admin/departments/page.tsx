@@ -9,10 +9,10 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+// Removed unused table imports - using card layout instead
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Building2, Users, Calendar, Plus, Edit2, Trash2, Check, X, Loader2 } from 'lucide-react'
+import { Building2, Users, Calendar, Plus, Edit2, Trash2, Loader2 } from 'lucide-react'
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
 

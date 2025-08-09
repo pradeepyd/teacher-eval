@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
@@ -44,7 +45,7 @@ export default function EvaluationPage() {
         } else {
           setError('Failed to fetch evaluation')
         }
-      } catch (err) {
+      } catch (_err) {
         setError('Error fetching evaluation')
       } finally {
         setLoading(false)
@@ -70,7 +71,7 @@ export default function EvaluationPage() {
       } else {
         setError('Failed to save draft')
       }
-    } catch (err) {
+    } catch (_err) {
       setError('Error saving draft')
     }
   }
@@ -89,7 +90,7 @@ export default function EvaluationPage() {
       } else {
         setError('Failed to submit evaluation')
       }
-    } catch (err) {
+    } catch (_err) {
       setError('Error submitting evaluation')
     }
   }
@@ -165,15 +166,15 @@ export default function EvaluationPage() {
             </CardHeader>
           </Card>
 
-          {/* Evaluation Form */}
+          {/* Evaluation Form (aligned with current props) */}
           <EvaluationForm
-            questions={evaluation.questions}
-            initialAnswers={evaluation.answers}
-            initialComments={evaluation.comments}
-            onSaveDraft={handleSaveDraft}
-            onSubmit={handleSubmit}
-            disabled={evaluation.status === 'submitted' || evaluation.status === 'completed'}
-            autoSaveFeedback={true}
+            term={(evaluation.term === 'START' ? 'START' : 'END')}
+            onSubmit={(items, selfComment) => {
+              const answersRecord = Object.fromEntries(items.map(i => [i.questionId, i.answer]))
+              return handleSubmit(answersRecord, selfComment)
+            }}
+            onCancel={() => {}}
+            loading={false}
           />
         </div>
       </DashboardLayout>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
 import Link from 'next/link'
@@ -13,7 +14,7 @@ import {
   Calendar, 
   BarChart3, 
   UserCheck, 
-  GraduationCap,
+
   BookOpen,
   TrendingUp,
   Activity
@@ -35,6 +36,7 @@ interface DepartmentTerm {
 }
 
 export default function AdminDashboard() {
+  const { data: session, status } = useSession()
   const [stats, setStats] = useState<DashboardStats>({
     totalUsers: 0,
     totalTeachers: 0,
@@ -99,10 +101,12 @@ export default function AdminDashboard() {
       }
     }
 
-    fetchDashboardData()
-  }, [])
+    if (status === 'authenticated' && (session?.user as any)?.role === 'ADMIN') {
+      fetchDashboardData()
+    }
+  }, [status, session])
 
-  if (loading) {
+  if (loading || status === 'loading') {
     return (
       <RoleGuard allowedRoles={['ADMIN']}>
         <DashboardLayout title="Admin Dashboard" showBack={false}>

@@ -33,8 +33,8 @@ export default function DashboardLayout({ children, title, showBack = true, show
             <div className="flex items-center space-x-4">
               <div className="text-sm text-gray-700">
                 <span className="font-medium">{session?.user?.name}</span>
-                <span className="ml-2 text-gray-500">({session?.user?.role})</span>
-                <span className="ml-2 text-gray-500">{session?.user?.departmentName}</span>
+                <span className="ml-2 text-gray-500">({(session?.user as any)?.role})</span>
+                <span className="ml-2 text-gray-500">{(session?.user as any)?.departmentName}</span>
               </div>
               <button
                 onClick={handleLogout}

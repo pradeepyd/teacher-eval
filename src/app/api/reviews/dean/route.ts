@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -151,6 +152,14 @@ export async function POST(request: NextRequest) {
 
     if (!asstReview || !asstReview.submitted) {
       return NextResponse.json({ error: 'Assistant Dean review not completed' }, { status: 400 })
+    }
+
+    // Block re-finalization: Dean can finalize only once per teacher/term
+    const existingFinal = await prisma.finalReview.findUnique({
+      where: { teacherId_term: { teacherId, term: term as 'START' | 'END' } }
+    })
+    if (existingFinal?.submitted) {
+      return NextResponse.json({ error: 'Final review already submitted for this term' }, { status: 400 })
     }
 
     // Determine status based on promotion

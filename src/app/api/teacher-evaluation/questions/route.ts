@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -28,7 +29,8 @@ export async function GET(request: NextRequest) {
     const questions = await prisma.question.findMany({
       where: {
         departmentId: session.user.departmentId,
-        term: term as 'START' | 'END'
+        term: term as 'START' | 'END',
+        isActive: true
       },
       orderBy: [
         { order: 'asc' },

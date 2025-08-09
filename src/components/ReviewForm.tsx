@@ -48,7 +48,14 @@ interface ReviewFormProps {
   reviewerRole: 'HOD' | 'ASST_DEAN'
   onSubmit: (data: {
     comments: string
-    scores: { [key: string]: number }
+    scores: {
+      questionScores: { [key: string]: number }
+      rubric: Record<string, number>
+      professionalismSubtotal: number
+      responsibilitiesSubtotal: number
+      developmentSubtotal: number
+      totalScore: number
+    }
     submitted: boolean
   }) => void
   onCancel: () => void
@@ -66,6 +73,7 @@ export default function ReviewForm({
   const [teacherData, setTeacherData] = useState<TeacherData | null>(null)
   const [comments, setComments] = useState('')
   const [scores, setScores] = useState<{ [key: string]: number }>({})
+  const [rubricScores, setRubricScores] = useState<Record<string, number>>({})
   const [fetchLoading, setFetchLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -85,7 +93,8 @@ export default function ReviewForm({
           // Initialize form with existing data
           if (data.existingReview) {
             setComments(data.existingReview.comments)
-            setScores(data.existingReview.scores || {})
+            setScores(data.existingReview.scores?.questionScores || {})
+            setRubricScores(data.existingReview.scores?.rubric || {})
           } else {
             // Initialize scores with 0 for each question
             const initialScores: { [key: string]: number } = {}
@@ -93,6 +102,7 @@ export default function ReviewForm({
               initialScores[answer.question.id] = 0
             })
             setScores(initialScores)
+            setRubricScores({})
           }
         } else {
           const errorData = await response.json()
@@ -135,14 +145,40 @@ export default function ReviewForm({
       return
     }
 
+    // Compute rubric subtotals and total per evaluation.md
+    const professionalismKeys = Object.keys(rubricScores).filter(k => k.startsWith('[Professionalism]'))
+    const responsibilitiesKeys = Object.keys(rubricScores).filter(k => k.startsWith('[Responsibilities]'))
+    const developmentKeys = Object.keys(rubricScores).filter(k => k.startsWith('[Development]'))
+
+    const sum = (keys: string[]) => keys.reduce((acc, k) => acc + (rubricScores[k] || 0), 0)
+    const professionalismSubtotal = sum(professionalismKeys) * 2 // (X2) weighting
+    const responsibilitiesSubtotal = sum(responsibilitiesKeys)
+    const developmentSubtotal = sum(developmentKeys)
+    const rubricTotal = professionalismSubtotal + responsibilitiesSubtotal + developmentSubtotal
+
     onSubmit({
       comments: comments.trim(),
-      scores,
+      scores: {
+        questionScores: scores,
+        rubric: rubricScores,
+        professionalismSubtotal,
+        responsibilitiesSubtotal,
+        developmentSubtotal,
+        totalScore: rubricTotal,
+      },
       submitted
     })
   }
 
   const getTotalScore = () => {
+    // Prefer rubric total if present
+    const professionalism = Object.keys(rubricScores).filter(k => k.startsWith('[Professionalism]'))
+    const responsibilities = Object.keys(rubricScores).filter(k => k.startsWith('[Responsibilities]'))
+    const development = Object.keys(rubricScores).filter(k => k.startsWith('[Development]'))
+    if (professionalism.length + responsibilities.length + development.length > 0) {
+      const sum = (keys: string[]) => keys.reduce((acc, k) => acc + (rubricScores[k] || 0), 0)
+      return sum(professionalism) * 2 + sum(responsibilities) + sum(development)
+    }
     return Object.values(scores).reduce((sum, score) => sum + score, 0)
   }
 
@@ -207,7 +243,7 @@ export default function ReviewForm({
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Left Column - Teacher's Responses */}
-            <div className="space-y-6">
+              <div className="space-y-6">
               <h3 className="text-lg font-medium text-gray-900">Teacher's Responses</h3>
               
               {/* Teacher Answers */}
@@ -269,6 +305,84 @@ export default function ReviewForm({
                 </div>
               </div>
 
+              {/* Rubric (evaluation.md mapped) */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-900 mb-3">Rubric (1–5 per item)</h4>
+                <div className="space-y-4">
+                  {/* Professionalism */}
+                  <div>
+                    <div className="text-sm font-semibold text-gray-800 mb-2">Professionalism (x2)</div>
+                    {['Compliance','Punctuality/Attendance','Ability to deal with students','Competence and Performance'].map((label) => {
+                      const key = `[Professionalism] ${label}`
+                      return (
+                        <div key={key} className="flex items-center justify-between py-1">
+                          <span className="text-sm text-gray-700">{label}</span>
+                          <div className="flex items-center gap-2">
+                            {[1,2,3,4,5].map(n => (
+                              <button
+                                type="button"
+                                key={n}
+                                onClick={() => teacherData?.canEdit && setRubricScores(prev => ({ ...prev, [key]: n }))}
+                                className={`w-8 h-8 rounded-md text-sm border ${rubricScores[key]===n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                                disabled={!teacherData?.canEdit}
+                              >{n}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Responsibilities */}
+                  <div>
+                    <div className="text-sm font-semibold text-gray-800 mb-2">College Responsibilities</div>
+                    {['Attending Non-Teaching Activities','Department Related Duties','Collegial Relationship','Ability to Deal with Supervisors','Participation in College Committees'].map((label) => {
+                      const key = `[Responsibilities] ${label}`
+                      return (
+                        <div key={key} className="flex items-center justify-between py-1">
+                          <span className="text-sm text-gray-700">{label}</span>
+                          <div className="flex items-center gap-2">
+                            {[1,2,3,4,5].map(n => (
+                              <button
+                                type="button"
+                                key={n}
+                                onClick={() => teacherData?.canEdit && setRubricScores(prev => ({ ...prev, [key]: n }))}
+                                className={`w-8 h-8 rounded-md text-sm border ${rubricScores[key]===n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                                disabled={!teacherData?.canEdit}
+                              >{n}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Development */}
+                  <div>
+                    <div className="text-sm font-semibold text-gray-800 mb-2">Professional Development</div>
+                    {['In-Service Training','Research and Publications','National and International Conferences'].map((label) => {
+                      const key = `[Development] ${label}`
+                      return (
+                        <div key={key} className="flex items-center justify-between py-1">
+                          <span className="text-sm text-gray-700">{label}</span>
+                          <div className="flex items-center gap-2">
+                            {[1,2,3,4,5].map(n => (
+                              <button
+                                type="button"
+                                key={n}
+                                onClick={() => teacherData?.canEdit && setRubricScores(prev => ({ ...prev, [key]: n }))}
+                                className={`w-8 h-8 rounded-md text-sm border ${rubricScores[key]===n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                                disabled={!teacherData?.canEdit}
+                              >{n}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
               {/* HOD Review (for Assistant Dean) */}
               {reviewerRole === 'ASST_DEAN' && teacherData.hodReview && (
                 <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
@@ -277,7 +391,7 @@ export default function ReviewForm({
                   </h4>
                   <p className="text-gray-700 mb-2">{teacherData.hodReview.comments}</p>
                   <div className="text-sm text-gray-600">
-                    HOD Total Score: {Object.values(teacherData.hodReview.scores || {}).reduce((sum: number, score: any) => sum + score, 0)}
+                    HOD Total Score: {(teacherData.hodReview.scores?.totalScore as number) ?? 0}
                   </div>
                 </div>
               )}
@@ -305,7 +419,7 @@ export default function ReviewForm({
                   <button
                     type="button"
                     onClick={onCancel}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    className="px-4 py-2 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors border-0"
                   >
                     Cancel
                   </button>
@@ -313,7 +427,7 @@ export default function ReviewForm({
                     type="button"
                     onClick={() => handleSubmit(false)}
                     disabled={loading}
-                    className="px-4 py-2 text-sm font-medium text-blue-700 bg-blue-100 border border-blue-300 rounded-md hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors border-0 disabled:opacity-50"
                   >
                     {loading ? 'Saving...' : 'Save Draft'}
                   </button>
@@ -321,7 +435,7 @@ export default function ReviewForm({
                     type="button"
                     onClick={() => handleSubmit(true)}
                     disabled={loading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
                     {loading ? 'Submitting...' : 'Submit Review'}
                   </button>

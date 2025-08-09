@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -72,8 +73,8 @@ export async function GET(request: NextRequest) {
         id: teacher.id,
         name: teacher.name,
         email: teacher.email,
-        department: teacher.department.name,
-        status: startFinalReview ? 'REVIEWED' : 'PENDING',
+        department: teacher.department?.name || 'N/A',
+        status: (startFinalReview?.submitted || endFinalReview?.submitted) ? 'FINALIZED' : 'PENDING',
         teacherAnswers: {
           START: startAnswers,
           END: endAnswers
@@ -87,16 +88,16 @@ export async function GET(request: NextRequest) {
           END: endHodReview?.comments || ''
         },
         hodScore: {
-          START: startHodReview?.scores?.totalScore || 0,
-          END: endHodReview?.scores?.totalScore || 0
+          START: (startHodReview?.scores as any)?.totalScore || 0,
+          END: (endHodReview?.scores as any)?.totalScore || 0
         },
         asstDeanComment: {
           START: startAsstReview?.comments || '',
           END: endAsstReview?.comments || ''
         },
         asstDeanScore: {
-          START: startAsstReview?.scores?.totalScore || 0,
-          END: endAsstReview?.scores?.totalScore || 0
+          START: (startAsstReview?.scores as any)?.totalScore || 0,
+          END: (endAsstReview?.scores as any)?.totalScore || 0
         },
         deanComment: {
           START: startFinalReview?.finalComment || '',
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
           START: startFinalReview?.status === 'PROMOTED',
           END: endFinalReview?.status === 'PROMOTED'
         },
-        canReview: !startFinalReview || !endFinalReview
+        canReview: !((startFinalReview?.submitted || false) || (endFinalReview?.submitted || false))
       }
     })
 

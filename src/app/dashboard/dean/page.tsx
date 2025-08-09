@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
@@ -16,6 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2, FileDown } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface Department {
   id: string
@@ -34,21 +36,23 @@ interface TeacherAnswer {
   }
 }
 
+interface TermScoped<T> { START: T; END: T }
+
 interface Teacher {
   id: string
   name: string
   email: string
   department: string
   status: string
-  teacherAnswers: TeacherAnswer[]
-  selfComment: string
-  hodComment: string
-  hodScore: number
-  asstDeanComment: string
-  asstDeanScore: number
-  deanComment: string
-  finalScore: number
-  promoted: boolean
+  teacherAnswers: TermScoped<TeacherAnswer[]>
+  selfComment: TermScoped<string>
+  hodComment: TermScoped<string>
+  hodScore: TermScoped<number>
+  asstDeanComment: TermScoped<string>
+  asstDeanScore: TermScoped<number>
+  deanComment: TermScoped<string>
+  finalScore: TermScoped<number>
+  promoted: TermScoped<boolean>
   canReview: boolean
 }
 
@@ -64,22 +68,29 @@ export default function DeanDashboard() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null)
   const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
+  type HodReviewView = { reviewer: { id: string; name: string; role: string }, comments: string, totalScore: number | null }
+  type HodView = { id: string; name: string; department?: { id: string; name: string } | null; reviews: HodReviewView[] }
+  const [hods, setHods] = useState<HodView[]>([])
+  const [hodTerm, setHodTerm] = useState<'START'|'END'>('START')
+  const [hodLoading, setHodLoading] = useState(false)
 
   // Fetch departments
   const fetchDepartments = async () => {
     try {
-      const response = await fetch('/api/departments')
+      const response = await fetch('/api/departments/public')
       if (!response.ok) {
         throw new Error('Failed to fetch departments')
       }
       const data = await response.json()
-      setDepartments(data.departments || [])
-      if (data.departments?.length > 0) {
-        setSelectedDept(data.departments[0].id)
+      const list = Array.isArray(data) ? data : (data.departments || [])
+      setDepartments(list)
+      if (list.length > 0) {
+        setSelectedDept(list[0].id)
       }
     } catch (error) {
       console.error('Error fetching departments:', error)
       setError('Failed to load departments')
+      toast.error('Failed to load departments')
     }
   }
 
@@ -100,6 +111,7 @@ export default function DeanDashboard() {
     } catch (error) {
       console.error('Error fetching teachers:', error)
       setError('Failed to load teachers')
+      toast.error('Failed to load teachers')
     } finally {
       setLoading(false)
     }
@@ -116,6 +128,29 @@ export default function DeanDashboard() {
       }
     } catch (e) {
       // ignore
+    }
+  }
+
+  // Fetch HOD performance with Asst. Dean and Dean reviews
+  const fetchHodPerformance = async () => {
+    setHodLoading(true)
+    try {
+      const res = await fetch(`/api/reviews/dean/hod?term=${hodTerm}`)
+      if (!res.ok) throw new Error('Failed to load HOD performance')
+      const data: { hods?: Array<{ id: string; name: string; department?: { id: string; name: string } | null; hodPerformanceReviewsReceived?: Array<{ reviewer: { id: string; name: string; role: string }, comments: string, totalScore: number | null }> }> } = await res.json()
+      const mapped: HodView[] = (data.hods || []).map((h) => ({
+        id: h.id,
+        name: h.name,
+        department: h.department || null,
+        reviews: (h.hodPerformanceReviewsReceived || []).map((r) => ({ reviewer: r.reviewer, comments: r.comments, totalScore: r.totalScore ?? null }))
+      }))
+      setHods(mapped)
+    } catch (e) {
+      // surface under main error banner
+      setError('Failed to load HOD performance')
+      toast.error('Failed to load HOD performance')
+    } finally {
+      setHodLoading(false)
     }
   }
 
@@ -141,11 +176,21 @@ export default function DeanDashboard() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to submit final review')
+        const errorData = await response.json().catch(() => ({}))
+        const msg = errorData.error || 'Failed to submit final review'
+        // If already finalized, notify and update UI
+        if (msg.includes('Final review already submitted')) {
+          toast.success('This teacher has already been finalized for this term')
+          setTeachers(prev => prev.map(t => (
+            t.id === teacherId ? { ...t, status: 'FINALIZED', canReview: false } : t
+          )))
+          return
+        }
+        throw new Error(msg)
       }
 
       setSuccess('Final review submitted successfully!')
+      toast.success('Final review submitted successfully!')
       
       // Update local state
       setTeachers(prev => prev.map(t => 
@@ -158,7 +203,16 @@ export default function DeanDashboard() {
       setSelectedTeacher(null)
     } catch (error) {
       console.error('Error submitting final review:', error)
-      setError(error instanceof Error ? error.message : 'Failed to submit final review')
+      const msg = error instanceof Error ? error.message : 'Failed to submit final review'
+      if (msg.includes('Final review already submitted')) {
+        toast.success('This teacher has already been finalized for this term')
+        setTeachers(prev => prev.map(t => (
+          t.id === teacherId ? { ...t, status: 'FINALIZED', canReview: false } : t
+        )))
+      } else {
+        setError(msg)
+        toast.error(msg)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -177,12 +231,15 @@ export default function DeanDashboard() {
       setError('No active term set for the selected department')
       return
     }
-    if (!teacher.deanComment?.trim()) {
+    const termKey = activeTerm
+    const deanCommentVal = (teacher.deanComment as any)?.[termKey] || ''
+    if (!deanCommentVal?.trim()) {
       setError('Please add final comments before submitting')
       return
     }
 
-    if (!teacher.finalScore || teacher.finalScore < 1 || teacher.finalScore > 10) {
+    const finalScoreVal = Number((teacher.finalScore as any)?.[termKey] || 0)
+    if (!finalScoreVal || finalScoreVal < 1 || finalScoreVal > 10) {
       setError('Please provide a valid final score between 1 and 10')
       return
     }
@@ -194,12 +251,11 @@ export default function DeanDashboard() {
   // Confirm submission
   const confirmSubmit = () => {
     if (!selectedTeacher) return
-    submitFinalReview(
-      selectedTeacher.id, 
-      selectedTeacher.deanComment, 
-      selectedTeacher.finalScore, 
-      selectedTeacher.promoted
-    )
+    const termKey = activeTerm as 'START' | 'END'
+    const deanCommentVal = (selectedTeacher.deanComment as any)?.[termKey] || ''
+    const finalScoreVal = Number((selectedTeacher.finalScore as any)?.[termKey] || 0)
+    const promotedVal = Boolean((selectedTeacher.promoted as any)?.[termKey] || false)
+    submitFinalReview(selectedTeacher.id, deanCommentVal, finalScoreVal, promotedVal)
   }
 
   // Export PDF (placeholder)
@@ -223,6 +279,12 @@ export default function DeanDashboard() {
       fetchTermState()
     }
   }, [selectedDept])
+
+  useEffect(() => {
+    if (session?.user) {
+      fetchHodPerformance()
+    }
+  }, [session, hodTerm])
 
   if (!session?.user) {
     return (
@@ -270,6 +332,74 @@ export default function DeanDashboard() {
         )}
 
         <div className="space-y-6">
+          {/* HOD Performance Reviews (Assistant Dean + Dean) */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>HOD Performance (By Asst. Dean & Dean)</CardTitle>
+                <div className="w-40">
+                  <Select value={hodTerm} onValueChange={(v: any) => setHodTerm(v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="START">START</SelectItem>
+                      <SelectItem value="END">END</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {hodLoading ? (
+                <div className="text-sm text-gray-500 flex items-center"><Loader2 className="w-4 h-4 animate-spin mr-2"/>Loading HODs...</div>
+              ) : (
+                <div className="space-y-3">
+                  {hods.map((h: HodView) => (
+                    <div key={h.id} className="p-4 border rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium">{h.name}</div>
+                          <div className="text-sm text-gray-500">{h.department?.name || '—'}</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-sm font-medium mb-1">Assistant Dean Review</div>
+                          {h.reviews.filter((r: HodReviewView) => r.reviewer.role === 'ASST_DEAN').length === 0 ? (
+                            <div className="text-sm text-gray-500">No review yet</div>
+                          ) : (
+                            h.reviews.filter((r: HodReviewView) => r.reviewer.role === 'ASST_DEAN').map((r: HodReviewView, idx: number) => (
+                              <div key={idx} className="text-sm text-gray-700">
+                                <div className="mb-1">{r.comments || '—'}</div>
+                                <div>Score: {r.totalScore ?? '—'}</div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-sm font-medium mb-1">Dean Review</div>
+                          {h.reviews.filter((r: HodReviewView) => r.reviewer.role === 'DEAN').length === 0 ? (
+                            <div className="text-sm text-gray-500">No review yet</div>
+                          ) : (
+                            h.reviews.filter((r: HodReviewView) => r.reviewer.role === 'DEAN').map((r: HodReviewView, idx: number) => (
+                              <div key={idx} className="text-sm text-gray-700">
+                                <div className="mb-1">{r.comments || '—'}</div>
+                                <div>Score: {r.totalScore ?? '—'}</div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {hods.length === 0 && (
+                    <div className="text-sm text-gray-500">No HODs found.</div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
           {/* Department Selection */}
           <Card>
             <CardHeader>
@@ -343,41 +473,41 @@ export default function DeanDashboard() {
                               <TabsTrigger value="dean-final">Dean Final Review</TabsTrigger>
                             </TabsList>
                             
-                            <TabsContent value="teacher-answers" className="space-y-4">
+                              <TabsContent value="teacher-answers" className="space-y-4">
                               <div className="space-y-3">
-                                {teacher.teacherAnswers?.map((answer, index) => (
+                                  {(teacher.teacherAnswers?.[activeTerm || 'START'] || []).map((answer, index) => (
                                   <div key={index} className="p-3 bg-blue-50 rounded-lg">
                                     <p className="text-sm font-medium">Question {index + 1}: {answer.question.question}</p>
                                     <p className="text-sm text-gray-700 mt-1">{answer.answer}</p>
                                   </div>
                                 )) || <p className="text-sm text-gray-500">No answers available</p>}
-                                {teacher.selfComment && (
+                                  {((teacher.selfComment as any)?.[activeTerm || 'START']) && (
                                   <div className="p-3 bg-green-50 rounded-lg">
                                     <p className="text-sm font-medium">Teacher's Self Comment:</p>
-                                    <p className="text-sm text-gray-700 mt-1">{teacher.selfComment}</p>
+                                      <p className="text-sm text-gray-700 mt-1">{(teacher.selfComment as any)?.[activeTerm || 'START']}</p>
                                   </div>
                                 )}
                               </div>
                             </TabsContent>
                             
-                            <TabsContent value="hod-comments" className="space-y-4">
+                              <TabsContent value="hod-comments" className="space-y-4">
                               <div className="p-4 bg-gray-50 rounded-lg">
                                 <h4 className="font-medium mb-2">HOD Comments:</h4>
-                                <p className="text-sm text-gray-700">{teacher.hodComment || 'No comments available'}</p>
+                                  <p className="text-sm text-gray-700">{(teacher.hodComment as any)?.[activeTerm || 'START'] || 'No comments available'}</p>
                                 <div className="mt-2">
                                   <span className="text-sm font-medium">HOD Score: </span>
-                                  <span className="text-sm text-gray-700">{teacher.hodScore}/10</span>
+                                    <span className="text-sm text-gray-700">{(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}/10</span>
                                 </div>
                               </div>
                             </TabsContent>
                             
-                            <TabsContent value="asst-dean-comments" className="space-y-4">
+                              <TabsContent value="asst-dean-comments" className="space-y-4">
                               <div className="p-4 bg-gray-50 rounded-lg">
                                 <h4 className="font-medium mb-2">Assistant Dean Comments:</h4>
-                                <p className="text-sm text-gray-700">{teacher.asstDeanComment || 'No comments available'}</p>
+                                  <p className="text-sm text-gray-700">{(teacher.asstDeanComment as any)?.[activeTerm || 'START'] || 'No comments available'}</p>
                                 <div className="mt-2">
                                   <span className="text-sm font-medium">Assistant Dean Score: </span>
-                                  <span className="text-sm text-gray-700">{teacher.asstDeanScore}/10</span>
+                                    <span className="text-sm text-gray-700">{(teacher.asstDeanScore as any)?.[activeTerm || 'START'] || 0}/10</span>
                                 </div>
                               </div>
                             </TabsContent>
@@ -388,8 +518,8 @@ export default function DeanDashboard() {
                                   <label className="text-sm font-medium">Final Comments</label>
                                   <Textarea
                                     placeholder="Enter your final comments..."
-                                    value={teacher.deanComment}
-                                    onChange={(e) => updateTeacher(teacher.id, { deanComment: e.target.value })}
+                                    value={(teacher.deanComment as any)?.[activeTerm || 'START'] || ''}
+                                    onChange={(ev) => updateTeacher(teacher.id, { deanComment: { ...(teacher.deanComment as any), [activeTerm || 'START']: ev.target.value } as any })}
                                     className="mt-1"
                                     disabled={!teacher.canReview}
                                   />
@@ -401,8 +531,8 @@ export default function DeanDashboard() {
                                     type="number"
                                     min="1"
                                     max="10"
-                                    value={teacher.finalScore || ''}
-                                    onChange={(e) => updateTeacher(teacher.id, { finalScore: parseInt(e.target.value) || 0 })}
+                                    value={Number((teacher.finalScore as any)?.[activeTerm || 'START'] || '')}
+                                    onChange={(ev) => updateTeacher(teacher.id, { finalScore: { ...(teacher.finalScore as any), [activeTerm || 'START']: parseInt(ev.target.value) || 0 } as any })}
                                     className="mt-1 w-24"
                                     disabled={!teacher.canReview}
                                   />
@@ -411,8 +541,8 @@ export default function DeanDashboard() {
                                 <div className="flex items-center space-x-2">
                                   <Switch
                                     id={`promotion-${teacher.id}`}
-                                    checked={teacher.promoted}
-                                    onCheckedChange={(checked) => updateTeacher(teacher.id, { promoted: checked })}
+                                    checked={Boolean((teacher.promoted as any)?.[activeTerm || 'START'] || false)}
+                                    onCheckedChange={(checked) => updateTeacher(teacher.id, { promoted: { ...(teacher.promoted as any), [activeTerm || 'START']: checked } as any })}
                                     disabled={!teacher.canReview}
                                   />
                                   <label htmlFor={`promotion-${teacher.id}`} className="text-sm font-medium">
@@ -424,7 +554,7 @@ export default function DeanDashboard() {
                                   <Button 
                                     onClick={() => handleSubmit(teacher)}
                                     disabled={teacher.status === 'FINALIZED' || submitting}
-                                    className="w-full"
+                                    className="w-full bg-blue-600 hover:bg-blue-700"
                                   >
                                     {submitting ? (
                                       <>
@@ -460,7 +590,7 @@ export default function DeanDashboard() {
           )}
         </div>
 
-        {/* Confirmation Dialog */}
+          {/* Confirmation Dialog */}
         <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
           <DialogContent>
             <DialogHeader>

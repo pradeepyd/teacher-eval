@@ -1,11 +1,6 @@
 /*
-  Warnings:
-
-  - You are about to drop the column `emailVerified` on the `users` table. All the data in the column will be lost.
-  - You are about to drop the column `failedLogins` on the `users` table. All the data in the column will be lost.
-  - You are about to drop the column `lastLogin` on the `users` table. All the data in the column will be lost.
-  - You are about to drop the column `lockedUntil` on the `users` table. All the data in the column will be lost.
-
+  Note: This migration was adjusted to avoid dropping user security fields and re-creating
+  indexes that already exist from earlier migrations.
 */
 -- CreateEnum
 CREATE TYPE "public"."TermType" AS ENUM ('START', 'END');
@@ -34,11 +29,7 @@ ALTER TABLE "public"."teacher_answers" ALTER COLUMN "term" TYPE "public"."TermTy
 -- AlterTable
 ALTER TABLE "public"."term_state" ALTER COLUMN "activeTerm" TYPE "public"."TermType" USING "activeTerm"::text::"public"."TermType";
 
--- AlterTable
-ALTER TABLE "public"."users" DROP COLUMN "emailVerified",
-DROP COLUMN "failedLogins",
-DROP COLUMN "lastLogin",
-DROP COLUMN "lockedUntil";
+-- (Removed) Do not drop user security fields; they are required by the current schema.
 
 -- DropEnum
 DROP TYPE "public"."Term";
@@ -68,20 +59,26 @@ CREATE TABLE "public"."_DepartmentTerms" (
 -- CreateIndex
 CREATE INDEX "_DepartmentTerms_B_index" ON "public"."_DepartmentTerms"("B");
 
--- CreateIndex
-CREATE UNIQUE INDEX "asst_reviews_teacherId_term_key" ON "public"."asst_reviews"("teacherId", "term");
+-- Index already created in an earlier migration; ensure it exists but don't duplicate
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS "asst_reviews_teacherId_term_key" ON "public"."asst_reviews"("teacherId", "term");
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
--- CreateIndex
-CREATE UNIQUE INDEX "final_reviews_teacherId_term_key" ON "public"."final_reviews"("teacherId", "term");
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS "final_reviews_teacherId_term_key" ON "public"."final_reviews"("teacherId", "term");
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
--- CreateIndex
-CREATE UNIQUE INDEX "hod_reviews_teacherId_term_key" ON "public"."hod_reviews"("teacherId", "term");
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS "hod_reviews_teacherId_term_key" ON "public"."hod_reviews"("teacherId", "term");
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
--- CreateIndex
-CREATE UNIQUE INDEX "self_comments_teacherId_term_key" ON "public"."self_comments"("teacherId", "term");
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS "self_comments_teacherId_term_key" ON "public"."self_comments"("teacherId", "term");
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
--- CreateIndex
-CREATE UNIQUE INDEX "teacher_answers_teacherId_questionId_term_key" ON "public"."teacher_answers"("teacherId", "questionId", "term");
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS "teacher_answers_teacherId_questionId_term_key" ON "public"."teacher_answers"("teacherId", "questionId", "term");
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 -- AddForeignKey
 ALTER TABLE "public"."_DepartmentTerms" ADD CONSTRAINT "_DepartmentTerms_A_fkey" FOREIGN KEY ("A") REFERENCES "public"."departments"("id") ON DELETE CASCADE ON UPDATE CASCADE;

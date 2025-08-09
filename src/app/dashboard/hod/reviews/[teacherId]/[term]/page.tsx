@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -18,7 +19,14 @@ export default function HodReviewPage({ params }: PageProps) {
 
   const handleSubmit = async (data: {
     comments: string
-    scores: { [key: string]: number }
+    scores: {
+      questionScores: { [key: string]: number }
+      rubric: Record<string, number>
+      professionalismSubtotal: number
+      responsibilitiesSubtotal: number
+      developmentSubtotal: number
+      totalScore: number
+    }
     submitted: boolean
   }) => {
     setLoading(true)

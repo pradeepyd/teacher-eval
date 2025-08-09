@@ -10,10 +10,11 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
+import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { Calendar, Clock, Play, Square, Settings, Plus, Edit2, Trash2, Loader2 } from 'lucide-react'
+import { Calendar, Play, Square, Plus, Edit2, Trash2, Loader2 } from 'lucide-react'
 
 interface Term {
   id: string
@@ -49,6 +50,8 @@ export default function TermManagementPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingTerm, setEditingTerm] = useState<Term | null>(null)
   const [deletingTerm, setDeletingTerm] = useState<Term | null>(null)
+  const [dispatchDept, setDispatchDept] = useState<string>('')
+  const [dispatchTerm, setDispatchTerm] = useState<'START'|'END'>('START')
 
   // Form state
   const [formData, setFormData] = useState({
@@ -296,17 +299,7 @@ export default function TermManagementPage() {
     }
   }
 
-  // Get status color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'START':
-        return 'text-green-600'
-      case 'END':
-        return 'text-blue-600'
-      default:
-        return 'text-gray-600'
-    }
-  }
+  // Removed unused getStatusColor
 
   // Load data on component mount
   useEffect(() => {
@@ -362,6 +355,153 @@ export default function TermManagementPage() {
         )}
 
         <div className="space-y-6">
+          {/* Dispatch Evaluations */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Dispatch Evaluations</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Department</label>
+                  <Select value={dispatchDept} onValueChange={setDispatchDept}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departments.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Term</label>
+                  <Select value={dispatchTerm} onValueChange={(v: any) => setDispatchTerm(v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="START">START</SelectItem>
+                      <SelectItem value="END">END</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col md:flex-row md:items-end gap-2">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                    type="button"
+                    className="w-full md:w-auto bg-blue-600 hover:bg-blue-700"
+                    variant="default"
+                    disabled={!dispatchDept || submitting}
+                      >
+                        Publish Teacher Evaluation
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Publish Teacher Evaluation?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will make the teacher evaluation visible for the selected department and term. Proceed?
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={async () => {
+                            if (!dispatchDept) return
+                            setSubmitting(true)
+                            setError(null)
+                            setSuccess(null)
+                            try {
+                              const res = await fetch(`/api/departments/${dispatchDept}/term-state`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ activeTerm: dispatchTerm, visibility: 'PUBLISHED' })
+                              })
+                              if (!res.ok) {
+                                const data = await res.json().catch(() => ({}))
+                                throw new Error(data.error || 'Failed to publish teacher evaluation')
+                              }
+                              setSuccess('Teacher evaluation form published for selected department and term')
+                              toast.success('Teacher evaluation form published')
+                            } catch (e) {
+                              const msg = e instanceof Error ? e.message : 'Failed to publish teacher evaluation'
+                              setError(msg)
+                              toast.error(msg)
+                            } finally {
+                              setSubmitting(false)
+                            }
+                          }}
+                          disabled={submitting}
+                        >
+                          Confirm Publish
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        type="button"
+                        className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white"
+                        variant="default"
+                        disabled={!dispatchDept || submitting}
+                      >
+                        Publish HOD Evaluation
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Publish HOD Evaluation?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will enable Assistant Dean/Dean to evaluate HODs for the selected department and term.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={async () => {
+                            if (!dispatchDept) return
+                            setSubmitting(true)
+                            setError(null)
+                            setSuccess(null)
+                            try {
+                              const res = await fetch(`/api/departments/${dispatchDept}/term-state`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ activeTerm: dispatchTerm, hodVisibility: 'PUBLISHED' })
+                              })
+                              if (!res.ok) {
+                                const data = await res.json().catch(() => ({}))
+                                throw new Error(data.error || 'Failed to publish HOD evaluation')
+                              }
+                              setSuccess('HOD evaluation published for this department and term')
+                              toast.success('HOD evaluation published')
+                            } catch (e) {
+                              const msg = e instanceof Error ? e.message : 'Failed to publish HOD evaluation'
+                              setError(msg)
+                              toast.error(msg)
+                            } finally {
+                              setSubmitting(false)
+                            }
+                          }}
+                          disabled={submitting}
+                        >
+                          Confirm Publish
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Publishing makes Teacher forms visible to teachers. Publishing HOD evaluation enables Assistant Dean/Dean to evaluate HODs for the selected term.
+              </p>
+            </CardContent>
+          </Card>
+
           {/* Header with Add Button */}
           <div className="flex justify-between items-center">
             <div>
@@ -497,7 +637,6 @@ export default function TermManagementPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Term</TableHead>
-                      <TableHead>Year</TableHead>
                       <TableHead>Duration</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Departments</TableHead>
@@ -508,12 +647,11 @@ export default function TermManagementPage() {
                     {terms.map((term) => (
                       <TableRow key={term.id}>
                         <TableCell className="font-medium">{term.name}</TableCell>
-                        <TableCell>{term.year}</TableCell>
                         <TableCell>
-                          <div className="text-sm">
-                            <div>{new Date(term.startDate).toLocaleDateString()}</div>
-                            <div className="text-muted-foreground">to</div>
-                            <div>{new Date(term.endDate).toLocaleDateString()}</div>
+                          <div className="text-sm whitespace-nowrap">
+                            {new Date(term.startDate).toLocaleDateString()} 
+                            <span className="text-muted-foreground mx-1">–</span>
+                            {new Date(term.endDate).toLocaleDateString()}
                           </div>
                         </TableCell>
                         <TableCell>

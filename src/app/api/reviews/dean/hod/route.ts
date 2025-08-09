@@ -4,11 +4,11 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
-// List HODs for the Assistant Dean to evaluate for a given term
+// List HODs with Assistant Dean reviews and Dean reviews
 export async function GET(request: NextRequest) {
   try {
-    const session: any = await getServerSession(authOptions as any)
-    if (!session || session.user.role !== 'ASST_DEAN') {
+    const session = await getServerSession(authOptions)
+    if (!session || session.user.role !== 'DEAN') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -23,15 +23,14 @@ export async function GET(request: NextRequest) {
         email: true,
         department: { select: { id: true, name: true } },
         hodPerformanceReviewsReceived: {
-          where: { reviewerId: session.user.id, term },
+          where: { term },
+          include: { reviewer: { select: { id: true, name: true, role: true } } },
           orderBy: { updatedAt: 'desc' },
-          take: 1,
-          select: { comments: true, totalScore: true, submitted: true }
-        }
-      }
+        },
+      },
     })
 
-    // Enforce HOD evaluation publish gate per department term
+    // Enforce HOD evaluation publish gate
     const deptIds = Array.from(new Set(hods.map(h => h.department?.id).filter(Boolean))) as string[]
     const termStates = await prisma.termState.findMany({ where: { departmentId: { in: deptIds } } })
     const deptIdToGate = new Map(termStates.map((s: any) => [s.departmentId, s]))
@@ -42,16 +41,16 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ hods: filtered })
   } catch (e) {
-    console.error('Error loading HODs:', e)
+    console.error('Error loading HOD performance for Dean:', e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
-// Create or update a HOD performance review
+// Dean submits/updates their HOD performance review
 export async function POST(request: NextRequest) {
   try {
-    const session: any = await getServerSession(authOptions as any)
-    if (!session || session.user.role !== 'ASST_DEAN') {
+    const session = await getServerSession(authOptions)
+    if (!session || session.user.role !== 'DEAN') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -91,14 +90,14 @@ export async function POST(request: NextRequest) {
         scores: scores ?? {},
         totalScore: computedTotal,
         submitted: true,
-      }
+      },
     })
 
     return NextResponse.json({ review })
   } catch (e) {
-    console.error('Error submitting HOD review:', e)
+    console.error('Error submitting Dean HOD review:', e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
-// Duplicated imports and handlers below were removed to prevent multiple definition errors.
+

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
+import { toast } from 'sonner'
 import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,8 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { FileDown, Download, Search, BarChart3, Users, Loader2 } from 'lucide-react'
+import { FileDown, Search, BarChart3, Loader2 } from 'lucide-react'
 import Image from 'next/image'
 
 interface Department {
@@ -102,6 +102,7 @@ export default function ReportsPage() {
     } catch (error) {
       console.error('Error fetching departments:', error)
       setError('Failed to load departments')
+      toast.error('Failed to load departments')
     }
   }
 
@@ -130,17 +131,22 @@ export default function ReportsPage() {
       // Only show success if user explicitly generated via button
       if (manualTriggerRef.current) {
         setSuccess('Report generated successfully!')
+        toast.success('Report generated successfully!')
       }
     } catch (error) {
       console.error('Error fetching results:', error)
-      setError(error instanceof Error ? error.message : 'Failed to fetch results')
+      const msg = error instanceof Error ? error.message : 'Failed to fetch results'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
   }
 
   // Export to CSV
-  const exportToCSV = async () => {
+  const exportToCSV = async (e?: React.MouseEvent) => {
+    e?.preventDefault()
+    e?.stopPropagation()
     setExporting(true)
     setError(null)
 
@@ -169,16 +175,21 @@ export default function ReportsPage() {
       document.body.removeChild(a)
       
       setSuccess('CSV exported successfully!')
+      toast.success('CSV exported successfully!')
     } catch (error) {
       console.error('Error exporting CSV:', error)
-      setError(error instanceof Error ? error.message : 'Failed to export CSV')
+      const msg = error instanceof Error ? error.message : 'Failed to export CSV'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setExporting(false)
     }
   }
 
   // Export to PDF
-  const exportToPDF = async () => {
+  const exportToPDF = async (e?: React.MouseEvent) => {
+    e?.preventDefault()
+    e?.stopPropagation()
     setExporting(true)
     setError(null)
 
@@ -207,9 +218,12 @@ export default function ReportsPage() {
       document.body.removeChild(a)
       
       setSuccess('PDF exported successfully!')
+      toast.success('PDF exported successfully!')
     } catch (error) {
       console.error('Error exporting PDF:', error)
-      setError(error instanceof Error ? error.message : 'Failed to export PDF')
+      const msg = error instanceof Error ? error.message : 'Failed to export PDF'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setExporting(false)
     }
@@ -241,15 +255,16 @@ export default function ReportsPage() {
   const manualTriggerRef = { current: false } as { current: boolean }
 
   useEffect(() => {
+    const role = (session?.user as any)?.role as string | undefined
     if (session?.user) {
-      if (session.user.role === 'DEAN' || session.user.role === 'ASST_DEAN' || session.user.role === 'ADMIN') {
+      if (role === 'DEAN' || role === 'ASST_DEAN' || role === 'ADMIN') {
         fetchDepartments()
       }
       // Scope UI controls by role
-      if (session.user.role === 'HOD') {
+      if (role === 'HOD') {
         setSelectedRole('TEACHER')
       }
-      if (session.user.role === 'TEACHER') {
+      if (role === 'TEACHER') {
         setSelectedRole('TEACHER')
       }
       fetchResults()
@@ -297,23 +312,13 @@ export default function ReportsPage() {
                     Evaluation Results & Reports Dashboard
                   </p>
                 </div>
-                <Badge variant="outline" className="text-base">{session.user.role}</Badge>
+                <Badge variant="outline" className="text-base">{(session.user as any).role}</Badge>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {error && (
-          <Alert className="mb-4 border-red-200 bg-red-50">
-            <AlertDescription className="text-red-800">{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {success && (
-          <Alert className="mb-4 border-green-200 bg-green-50">
-            <AlertDescription className="text-green-800">{success}</AlertDescription>
-          </Alert>
-        )}
+        {/* Toasts replace banners for success/error */}
 
         <div className="space-y-6">
           {/* Filters */}
@@ -324,7 +329,7 @@ export default function ReportsPage() {
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Department Filter */}
-                {(session?.user?.role === 'DEAN' || session?.user?.role === 'ASST_DEAN' || session?.user?.role === 'ADMIN') && (
+                {(((session?.user as any)?.role) === 'DEAN' || ((session?.user as any)?.role) === 'ASST_DEAN' || ((session?.user as any)?.role) === 'ADMIN') && (
                   <div>
                     <label className="text-sm font-medium mb-2 block">Department</label>
                     <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
@@ -342,7 +347,7 @@ export default function ReportsPage() {
                 )}
 
                 {/* Role Filter */}
-                {(session?.user?.role !== 'TEACHER') && (
+                {(((session?.user as any)?.role) !== 'TEACHER') && (
                 <div>
                   <label className="text-sm font-medium mb-2 block">Role</label>
                   <Select value={selectedRole} onValueChange={setSelectedRole}>
@@ -407,7 +412,7 @@ export default function ReportsPage() {
                     <Button variant="outline" onClick={printResults} disabled={exporting}>
                       🖨️ Print
                     </Button>
-                    <Button variant="outline" onClick={exportToCSV} disabled={exporting}>
+                    <Button type="button" variant="outline" onClick={(e) => exportToCSV(e)} disabled={exporting}>
                       {exporting ? (
                         <>
                           <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -417,7 +422,7 @@ export default function ReportsPage() {
                         '📊 Export CSV'
                       )}
                     </Button>
-                    <Button variant="outline" onClick={exportToPDF} disabled={exporting}>
+                    <Button type="button" variant="outline" onClick={(e) => exportToPDF(e)} disabled={exporting}>
                       {exporting ? (
                         <>
                           <Loader2 className="h-4 w-4 animate-spin mr-2" />

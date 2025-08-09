@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { useState, useEffect } from 'react';
 import { signIn, getSession } from 'next-auth/react';
@@ -22,7 +23,6 @@ import { Eye, EyeClosed } from 'lucide-react';
 const EDUCATION_IMAGE =
   'https://images.unsplash.com/photo-1513258496099-48168024aec0?auto=format&fit=crop&w=800&q=80';
 
-const EDUCATION_IMAGE2 = 'https://unsplash.com/photos/person-holding-black-academic-hat-oTglG1D4hRA'  
 
 interface Department {
   id: string;
@@ -35,9 +35,6 @@ const LoginSchema = z
     password: z.string().min(8, 'Password must be at least 8 characters'),
     departmentId: z.string().optional(),
   })
-  .superRefine((data, ctx) => {
-    // Department validation will be handled by backend
-  });
 
 type LoginSchemaType = z.infer<typeof LoginSchema>;
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -83,6 +84,13 @@ export async function POST(request: NextRequest) {
     }
 
     const { teacherId, comment, score, term } = await request.json()
+    // Block if Dean has finalized for this teacher/term
+    const finalized = await prisma.finalReview.findUnique({
+      where: { teacherId_term: { teacherId, term: term as 'START' | 'END' } }
+    })
+    if (finalized?.submitted) {
+      return NextResponse.json({ error: 'Final review already submitted by Dean for this term' }, { status: 400 })
+    }
 
     if (!teacherId || !comment || !score || !term || !['START', 'END'].includes(term)) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })

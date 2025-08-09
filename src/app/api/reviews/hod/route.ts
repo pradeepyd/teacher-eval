@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -94,9 +95,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { teacherId, comment, score, term } = await request.json()
+    const body = await request.json()
+    const { teacherId, comment, score, term, scores } = body
+    // Block if Dean has finalized for this teacher/term
+    const finalized = await prisma.finalReview.findUnique({
+      where: { teacherId_term: { teacherId, term: term as 'START' | 'END' } }
+    })
+    if (finalized?.submitted) {
+      return NextResponse.json({ error: 'Final review already submitted by Dean for this term' }, { status: 400 })
+    }
 
-    if (!teacherId || !comment || !score || !term || !['START', 'END'].includes(term)) {
+    if (!teacherId || !comment || !term || !['START', 'END'].includes(term)) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
@@ -135,6 +144,9 @@ export async function POST(request: NextRequest) {
     const termRecord = await prisma.term.findFirst({ where: { year: new Date().getFullYear() }, select: { id: true } })
 
     // Create or update HOD review
+    // Prefer structured scores from payload; fall back to simple score
+    const structuredScores = scores && typeof scores === 'object' ? scores : { totalScore: Number(score) || 0 }
+
     const review = await prisma.hodReview.upsert({
       where: {
         teacherId_term: {
@@ -144,7 +156,7 @@ export async function POST(request: NextRequest) {
       },
       update: {
         comments: comment,
-        scores: { totalScore: score },
+        scores: structuredScores,
         submitted: true,
         reviewerId: session.user.id,
         termId: termRecord?.id || null
@@ -153,7 +165,7 @@ export async function POST(request: NextRequest) {
         teacherId,
         term: term as 'START' | 'END',
         comments: comment,
-        scores: { totalScore: score },
+        scores: structuredScores,
         submitted: true,
         reviewerId: session.user.id,
         termId: termRecord?.id || null

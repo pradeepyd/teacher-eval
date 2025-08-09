@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -88,6 +89,7 @@ export async function POST(request: NextRequest) {
         term,
         options: (type === 'MCQ' || type === 'CHECKBOX') ? options || [] : [],
         optionScores: (type === 'MCQ' || type === 'CHECKBOX') ? optionScores || [] : [],
+        isActive: true,
         order: order || 0
       },
       include: {

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function PUT(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> } | { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -13,8 +14,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { activeTerm, visibility } = await request.json()
-    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
+    const { activeTerm, visibility, hodVisibility } = await request.json()
+    const resolved = await params
     const departmentId = resolved.id
 
     if (!activeTerm || !['START', 'END'].includes(activeTerm)) {
@@ -43,10 +44,26 @@ export async function PUT(
       if (current && current.visibility === 'PUBLISHED' && current.activeTerm === activeTerm && visibility === 'PUBLISHED') {
         return NextResponse.json({ error: 'This term has already been published for this department' }, { status: 400 })
       }
+
+      // Enforce: cannot publish without an existing Term linked to this department for the target term
+      if ((visibility === 'PUBLISHED' || hodVisibility === 'PUBLISHED')) {
+        const termExists = await prisma.term.findFirst({
+          where: {
+            status: activeTerm as any,
+            departments: { some: { id: departmentId } },
+          },
+          select: { id: true },
+        })
+        if (!termExists) {
+          return NextResponse.json({
+            error: 'Create a Term and assign this department to it (with matching START/END status) before publishing evaluations.',
+          }, { status: 400 })
+        }
+      }
       const termState = await prisma.termState.upsert({
         where: { departmentId },
-        update: { activeTerm, ...(visibility ? { visibility } : {}) },
-        create: { departmentId, activeTerm, visibility: visibility || 'DRAFT' }
+        update: { activeTerm, ...(visibility ? { visibility } : {}), ...(hodVisibility ? { hodVisibility } : {}) },
+        create: { departmentId, activeTerm, visibility: visibility || 'DRAFT', hodVisibility: hodVisibility || 'DRAFT' }
       })
       return NextResponse.json(termState)
     }
@@ -65,10 +82,27 @@ export async function PUT(
       if (current && current.visibility === 'PUBLISHED' && visibility === 'PUBLISHED') {
         return NextResponse.json({ error: 'Already published for this term' }, { status: 400 })
       }
+
+      // Enforce term existence when attempting to publish
+      if (visibility === 'PUBLISHED') {
+        const effectiveTerm = (current?.activeTerm || activeTerm) as any
+        const termExists = await prisma.term.findFirst({
+          where: {
+            status: effectiveTerm,
+            departments: { some: { id: departmentId } },
+          },
+          select: { id: true },
+        })
+        if (!termExists) {
+          return NextResponse.json({
+            error: 'Create a Term and assign this department (matching START/END) before publishing evaluations.',
+          }, { status: 400 })
+        }
+      }
       const updated = await prisma.termState.upsert({
         where: { departmentId },
-        update: { ...(visibility ? { visibility } : {}) },
-        create: { departmentId, activeTerm: (activeTerm as any) || 'START', visibility: visibility || 'DRAFT' }
+        update: { ...(visibility ? { visibility } : {}), ...(hodVisibility ? { hodVisibility } : {}) },
+        create: { departmentId, activeTerm: (activeTerm as any) || 'START', visibility: visibility || 'DRAFT', hodVisibility: hodVisibility || 'DRAFT' }
       })
       return NextResponse.json(updated)
     }
@@ -83,8 +117,8 @@ export async function PUT(
 }
 
 export async function GET(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> } | { params: { id: string } }
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -93,7 +127,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
+    const resolved = await params
     const departmentId = resolved.id
 
     let termState = await prisma.termState.findUnique({
@@ -122,7 +156,8 @@ export async function GET(
         termState = await prisma.termState.upsert({
           where: { departmentId },
           update: { activeTerm: activeTerm.status as any },
-          create: { departmentId, activeTerm: activeTerm.status as any }
+          create: { departmentId, activeTerm: activeTerm.status as any },
+          include: { department: true }
         })
       } else {
         return NextResponse.json({ departmentId, activeTerm: null }, { status: 200 })

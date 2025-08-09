@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> } | { params: { id: string } }
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -14,7 +15,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
+    const resolved = await params
     const department = await prisma.department.findUnique({
       where: { id: resolved.id },
       include: {
@@ -40,7 +41,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> } | { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -57,7 +58,7 @@ export async function PUT(
 
     const trimmedName = name.trim()
 
-    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
+    const resolved = await params
     const result = await prisma.$transaction(async (tx) => {
       // Update department name
       const department = await tx.department.update({
@@ -98,8 +99,8 @@ export async function PUT(
 }
 
 export async function DELETE(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> } | { params: { id: string } }
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -109,7 +110,7 @@ export async function DELETE(
     }
 
     // Check if department has users
-    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
+    const resolved = await params
     const department = await prisma.department.findUnique({
       where: { id: resolved.id },
       include: {

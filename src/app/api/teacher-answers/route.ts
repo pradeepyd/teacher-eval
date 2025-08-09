@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+// @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -75,6 +76,14 @@ export async function POST(request: NextRequest) {
 
     if (!selfComment || typeof selfComment !== 'string') {
       return NextResponse.json({ error: 'Self comment is required' }, { status: 400 })
+    }
+
+    // Block if Dean has finalized for this teacher/term
+    const finalized = await prisma.finalReview.findUnique({
+      where: { teacherId_term: { teacherId: session.user.id, term: term as 'START' | 'END' } }
+    })
+    if (finalized?.submitted) {
+      return NextResponse.json({ error: 'Final review already submitted by Dean for this term' }, { status: 400 })
     }
 
     // Check if teacher's department has this term as active

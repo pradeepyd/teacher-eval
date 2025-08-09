@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 
 export async function PUT(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> } | { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session: any = await getServerSession(authOptions as any)
@@ -38,9 +38,7 @@ export async function PUT(
     }
 
     // Resolve params per Next.js v15 dynamic API guidance
-    const resolvedParams = 'then' in (context.params as any)
-      ? await (context.params as Promise<{ id: string }>)
-      : (context.params as { id: string })
+    const resolvedParams = await params
 
     // Update term with department associations
     const term = await prisma.term.update({
@@ -71,8 +69,8 @@ export async function PUT(
 }
 
 export async function DELETE(
-  request: NextRequest,
-  { params }: any
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session: any = await getServerSession(authOptions as any)
@@ -81,9 +79,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Resolve params per Next.js v15 dynamic API guidance
+    const resolvedParams = await params
+
     // Check if term exists
     const term = await prisma.term.findUnique({
-      where: { id: params.id }
+      where: { id: resolvedParams.id }
     })
 
     if (!term) {
@@ -92,7 +93,7 @@ export async function DELETE(
 
     // Delete term
     await prisma.term.delete({
-      where: { id: params.id }
+      where: { id: resolvedParams.id }
     })
 
     return NextResponse.json({ message: 'Term deleted successfully' })

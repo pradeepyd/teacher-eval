@@ -1,10 +1,12 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
 import QuestionForm from '@/components/QuestionForm'
+import { toast } from 'sonner'
 
 interface Question {
   id: string
@@ -45,17 +47,19 @@ export default function QuestionsPage() {
         setQuestions(data)
       } else {
         setError('Failed to fetch questions')
+        toast.error('Failed to fetch questions')
       }
     } catch (error) {
       setError('Error fetching questions')
+      toast.error('Error fetching questions')
     }
   }
 
   const fetchTermState = async () => {
-    if (!session?.user?.departmentId) return
+    if (!(session?.user as any)?.departmentId) return
     
     try {
-      const response = await fetch(`/api/departments/${session.user.departmentId}/term-state`)
+      const response = await fetch(`/api/departments/${(session?.user as any)?.departmentId}/term-state`)
       if (response.ok) {
         const data = await response.json()
         setTermState(data)
@@ -81,14 +85,18 @@ export default function QuestionsPage() {
 
       if (response.ok) {
         setSuccess('Question created successfully')
+        toast.success('Question created successfully')
         setShowForm(false)
         await fetchQuestions()
       } else {
         const errorData = await response.json()
-        setError(errorData.error || 'Failed to create question')
+        const msg = errorData.error || 'Failed to create question'
+        setError(msg)
+        toast.error(msg)
       }
     } catch (error) {
       setError('Error creating question')
+      toast.error('Error creating question')
     } finally {
       setSubmitting(false)
     }
@@ -112,14 +120,18 @@ export default function QuestionsPage() {
 
       if (response.ok) {
         setSuccess('Question updated successfully')
+        toast.success('Question updated successfully')
         setEditingQuestion(null)
         await fetchQuestions()
       } else {
         const errorData = await response.json()
-        setError(errorData.error || 'Failed to update question')
+        const msg = errorData.error || 'Failed to update question'
+        setError(msg)
+        toast.error(msg)
       }
     } catch (error) {
       setError('Error updating question')
+      toast.error('Error updating question')
     } finally {
       setSubmitting(false)
     }
@@ -135,13 +147,17 @@ export default function QuestionsPage() {
 
       if (response.ok) {
         setSuccess('Question deleted successfully')
+        toast.success('Question deleted successfully')
         await fetchQuestions()
       } else {
         const errorData = await response.json()
-        setError(errorData.error || 'Failed to delete question')
+        const msg = errorData.error || 'Failed to delete question'
+        setError(msg)
+        toast.error(msg)
       }
     } catch (error) {
       setError('Error deleting question')
+      toast.error('Error deleting question')
     }
   }
 
@@ -152,9 +168,10 @@ export default function QuestionsPage() {
       setLoading(false)
     }
 
-    if (session?.user?.departmentId) {
+    if ((session?.user as any)?.departmentId) {
       loadData()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
   const filteredQuestions = questions.filter(q => 
@@ -187,17 +204,6 @@ export default function QuestionsPage() {
     <RoleGuard allowedRoles={['HOD']}>
       <DashboardLayout title="Question Management">
         <div className="space-y-6">
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
-              {success}
-            </div>
-          )}
 
           {/* Active Term Info */}
           {termState && (

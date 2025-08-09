@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
@@ -17,7 +18,7 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
-import { Plus, Eye, Trash2, Save, Send, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Save, Send, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 
 interface Question {
   id: string
@@ -38,6 +39,7 @@ interface Teacher {
   hodComment: string
   hodScore: number
   canReview: boolean
+  rubric?: Record<string, number>
 }
 
 interface TeacherAnswer {
@@ -63,6 +65,7 @@ export default function HodDashboard() {
   const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
   const [visibility, setVisibility] = useState<'DRAFT' | 'PUBLISHED'>('DRAFT')
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false)
+  const [openTeacherId, setOpenTeacherId] = useState<string | null>(null)
 
   // Question form state
   const [newQuestion, setNewQuestion] = useState({
@@ -230,6 +233,7 @@ export default function HodDashboard() {
           teacherId: teacherId,
           comment: teacher.hodComment,
           score: teacher.hodScore,
+          scores: teacher.rubric || {},
           term: activeTerm,
         })
       })
@@ -247,6 +251,7 @@ export default function HodDashboard() {
           ? { ...t, status: 'REVIEWED', canReview: false }
           : t
       ))
+      setOpenTeacherId(null)
     } catch (error) {
       console.error('Error submitting evaluation:', error)
       setError(error instanceof Error ? error.message : 'Failed to submit evaluation')
@@ -262,6 +267,7 @@ export default function HodDashboard() {
       fetchTeachers()
       fetchTermState()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
   const getStatusColor = (status: string) => {
@@ -347,6 +353,29 @@ export default function HodDashboard() {
                       <Plus className="h-5 w-5" />
                       Add New Question
                     </CardTitle>
+                    <div className="mt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            setLoading(true)
+                            const res = await fetch('/api/questions/template/rubric', { method: 'POST' })
+                            const data = await res.json().catch(() => ({}))
+                            if (!res.ok) throw new Error(data.error || 'Failed to insert rubric')
+                            setSuccess(data.message || 'Rubric inserted')
+                            await fetchQuestions()
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : 'Failed to insert rubric')
+                          } finally {
+                            setLoading(false)
+                          }
+                        }}
+                        disabled={loading || !activeTerm}
+                      >
+                        Insert Rubric Template
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
                   
@@ -435,6 +464,7 @@ export default function HodDashboard() {
                           Add Option
                         </Button>
                       </div>
+
                     )}
 
                     <div className="flex items-center space-x-2">
@@ -456,6 +486,7 @@ export default function HodDashboard() {
                       </Button>
                     </div>
                   </CardContent>
+                  )
                 </Card>
 
                 {/* Questions List */}
@@ -474,6 +505,9 @@ export default function HodDashboard() {
                             <div className="flex items-center gap-2 mb-1">
                               <span className="font-medium">Question {index + 1}</span>
                               <Badge variant="outline">{question.type}</Badge>
+                              {typeof (question as any).isActive === 'boolean' && !(question as any).isActive && (
+                                <Badge variant="destructive">Disabled</Badge>
+                              )}
                               {question.required && <Badge variant="destructive">Required</Badge>}
                             </div>
                             <div className="text-sm text-gray-700">{question.question}</div>
@@ -508,12 +542,13 @@ export default function HodDashboard() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="border-gray-300 text-gray-700 hover:bg-gray-100"
                       onClick={async () => { await fetchTermState(); }}
                     >Refresh</Button>
 
                     <AlertDialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
                       <AlertDialogTrigger asChild>
-                        <Button size="sm" disabled={!activeTerm || visibility==='PUBLISHED'}>Publish</Button>
+                        <Button size="sm" disabled={!activeTerm || visibility==='PUBLISHED'} className="bg-blue-600 hover:bg-blue-700 text-white">Publish</Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
@@ -595,31 +630,42 @@ export default function HodDashboard() {
               {teachers.map((teacher, idx) => (
                 <Card key={teacher.id} className="overflow-hidden">
                   <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle>{teacher.name}</CardTitle>
-                        <p className="text-sm text-gray-500">{teacher.email}</p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>{teacher.name}</CardTitle>
+                          <p className="text-sm text-gray-500">{teacher.email}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={getStatusColor(teacher.status)}
+                            className={
+                              teacher.status === 'SUBMITTED'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : teacher.status === 'IN_PROGRESS'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : teacher.status === 'NOT_STARTED'
+                                    ? 'bg-rose-100 text-rose-700'
+                                    : undefined
+                            }
+                          >
+                            {getStatusText(teacher.status)}
+                          </Badge>
+                          <button
+                            type="button"
+                            aria-label={openTeacherId === teacher.id ? 'Collapse' : 'Expand'}
+                            onClick={() => setOpenTeacherId(prev => (prev === teacher.id ? null : teacher.id))}
+                            className="p-1.5 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-100"
+                          >
+                            {openTeacherId === teacher.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+                        </div>
                       </div>
-                      <Badge
-                        variant={getStatusColor(teacher.status)}
-                        className={
-                          teacher.status === 'SUBMITTED'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : teacher.status === 'IN_PROGRESS'
-                              ? 'bg-amber-100 text-amber-700'
-                              : teacher.status === 'NOT_STARTED'
-                                ? 'bg-rose-100 text-rose-700'
-                                : undefined
-                        }
-                      >
-                        {getStatusText(teacher.status)}
-                      </Badge>
-                    </div>
                   </CardHeader>
-                  <CardContent className="space-y-3">
+                  {openTeacherId === teacher.id && (
+                    <CardContent className="space-y-3">
                     <Separator />
-                    <Accordion type="single" collapsible>
-                      <AccordionItem value={teacher.id}>
+                    <Accordion type="single" collapsible className="w-full">
+                      <AccordionItem value="review">
                         <AccordionTrigger
                           className="text-blue-600 hover:underline underline-offset-2 decoration-blue-400"
                           onClick={async () => {
@@ -636,17 +682,21 @@ export default function HodDashboard() {
                               } : t))
                             } catch {}
                           }}
-                        >View Teacher Answers</AccordionTrigger>
+                        >
+                          <div className="w-full flex items-center justify-between">
+                            <span>View Teacher Answers</span>
+                          </div>
+                        </AccordionTrigger>
                         <AccordionContent>
                           <div className="space-y-3">
-                            {Object.keys(teacher.answers).length === 0 ? (
+                           {Object.keys(teacher.answers).length === 0 ? (
                               <div className="text-sm text-muted-foreground">No answers loaded. Click the row again to refresh.</div>
                             ) : (
                               <>
-                                {Object.entries(teacher.answers).map(([questionText, answer]) => (
+                                {Object.entries(teacher.answers).map(([questionText, answer], idx) => (
                                   <div key={questionText} className="border-l-2 border-gray-200 pl-4">
                                     <div className="text-sm font-medium text-gray-700">
-                                      {questionText}
+                                      Q{idx + 1}: {questionText}
                                     </div>
                                     <div className="text-sm text-gray-600 mt-1">{answer}</div>
                                   </div>
@@ -693,29 +743,139 @@ export default function HodDashboard() {
                             className="md:w-40"
                           />
                         </div>
+
+                        {/* Rubric (1–5 per item) for teacher evaluation, similar to Asst. Dean HOD rubric */}
+                        <div className="mt-2 space-y-3">
+                          <div className="text-base md:text-lg font-semibold">Professionalism</div>
+                          {['Compliance','Punctuality/Attendance','Ability to deal with students','Competence and Performance'].map((label, idx) => {
+                            const key = `[Professionalism] ${label}`
+                            const val = teacher.rubric?.[key] || 0
+                            return (
+                              <div key={key} className="flex items-center justify-between py-1">
+                                <span className="text-sm"><span className="font-medium mr-2">{idx + 1}.</span>{label}</span>
+                                <div className="flex gap-2">
+                                  {[1,2,3,4,5].map(n => (
+                                    <button
+                                      key={n}
+                                      type="button"
+                                      onClick={() => teacher.canReview && updateTeacherEvaluation(teacher.id, 'rubric', { ...(teacher.rubric||{}), [key]: n })}
+                                      className={`w-8 h-8 rounded border text-sm ${val===n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                                      disabled={!teacher.canReview}
+                                    >{n}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
+
+                          <div className="text-base md:text-lg font-semibold mt-3">College Responsibilities</div>
+                          {['Attending Non-Teaching Activities','Department Related Duties','Collegial Relationship','Ability to Deal with Supervisors','Participation in College Committees'].map((label, idx) => {
+                            const key = `[Responsibilities] ${label}`
+                            const val = teacher.rubric?.[key] || 0
+                            return (
+                              <div key={key} className="flex items-center justify-between py-1">
+                                <span className="text-sm"><span className="font-medium mr-2">{idx + 1}.</span>{label}</span>
+                                <div className="flex gap-2">
+                                  {[1,2,3,4,5].map(n => (
+                                    <button key={n} type="button" onClick={() => teacher.canReview && updateTeacherEvaluation(teacher.id, 'rubric', { ...(teacher.rubric||{}), [key]: n })} className={`w-8 h-8 rounded border text-sm ${val===n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`} disabled={!teacher.canReview}>{n}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
+
+                          <div className="text-base md:text-lg font-semibold mt-3">Professional Development</div>
+                          {['In-Service Training','Research and Publications','National and International Conferences'].map((label, idx) => {
+                            const key = `[Development] ${label}`
+                            const val = teacher.rubric?.[key] || 0
+                            return (
+                              <div key={key} className="flex items-center justify-between py-1">
+                                <span className="text-sm"><span className="font-medium mr-2">{idx + 1}.</span>{label}</span>
+                                <div className="flex gap-2">
+                                  {[1,2,3,4,5].map(n => (
+                                    <button key={n} type="button" onClick={() => teacher.canReview && updateTeacherEvaluation(teacher.id, 'rubric', { ...(teacher.rubric||{}), [key]: n })} className={`w-8 h-8 rounded border text-sm ${val===n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`} disabled={!teacher.canReview}>{n}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
+
+                          {/* Engagement */}
+                          <div className="text-base md:text-lg font-semibold mt-3">Student & Community Engagement</div>
+                          {['Student Advising','Student Engagement','Community Engagement'].map((label, idx) => {
+                            const key = `[Engagement] ${label}`
+                            const val = teacher.rubric?.[key] || 0
+                            return (
+                              <div key={key} className="flex items-center justify-between py-1">
+                                <span className="text-sm"><span className="font-medium mr-2">{idx + 1}.</span>{label}</span>
+                                <div className="flex gap-2">
+                                  {[1,2,3,4,5].map(n => (
+                                    <button key={n} type="button" onClick={() => teacher.canReview && updateTeacherEvaluation(teacher.id, 'rubric', { ...(teacher.rubric||{}), [key]: n })} className={`w-8 h-8 rounded border text-sm ${val===n ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`} disabled={!teacher.canReview}>{n}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
+
+                          <div className="text-xs text-gray-500">
+                            {(() => {
+                              const s = teacher.rubric || {}
+                              const groups = [
+                                Object.keys(s).filter(k => k.startsWith('[Professionalism]')),
+                                Object.keys(s).filter(k => k.startsWith('[Responsibilities]')),
+                                Object.keys(s).filter(k => k.startsWith('[Development]')),
+                                Object.keys(s).filter(k => k.startsWith('[Engagement]')),
+                              ]
+                              const sum = (keys: string[]) => keys.reduce((acc, k) => acc + (s[k] || 0), 0)
+                              const raw = groups.reduce((acc, g) => acc + sum(g), 0)
+                              const max = groups.reduce((acc, g) => acc + g.length * 5, 0)
+                              const normalized = max > 0 ? Math.round((raw / max) * 100) : 0
+                              return <span>Estimated Total: {normalized}/100</span>
+                            })()}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Right column: actions stacked */}
                       <div className="flex flex-col items-stretch md:items-end gap-2 pt-1">
                         {teacher.canReview && (
                           <>
-                            <Button variant="outline" className="w-full md:w-44" disabled={loading}>
+                            <Button variant="outline" className="w-full md:w-44 bg-gray-100 text-gray-700 hover:bg-gray-200 border-0" disabled={loading}>
                               <Save className="h-4 w-4 mr-2" />
                               Save Draft
                             </Button>
-                            <Button
-                              className="w-full md:w-44 bg-[#2357F5] hover:bg-[#1f4cda]"
-                              onClick={() => submitTeacherEvaluation(teacher.id)}
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                              className="w-full md:w-44 bg-blue-600 hover:bg-blue-700 text-white"
+                                  onClick={() => {}}
                               disabled={loading || teacher.status === 'REVIEWED'}
                             >
                               {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
                               Submit Evaluation
-                            </Button>
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Submit Evaluation?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to submit your review for {teacher.name}? This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => submitTeacherEvaluation(teacher.id)} disabled={loading}>
+                                    {loading ? 'Submitting...' : 'Confirm Submit'}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </>
                         )}
                       </div>
                     </div>
-                  </CardContent>
+                    </CardContent>
+                  )}
                 </Card>
               ))}
             </div>

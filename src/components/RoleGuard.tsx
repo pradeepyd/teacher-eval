@@ -26,7 +26,7 @@ export default function RoleGuard({
       return
     }
 
-    if (!allowedRoles.includes(session.user.role)) {
+    if (!allowedRoles.includes(((session.user as any) || {}).role)) {
       router.push('/unauthorized')
       return
     }
@@ -40,7 +40,7 @@ export default function RoleGuard({
     )
   }
 
-  if (!session || !allowedRoles.includes(session.user.role)) {
+  if (!session || !allowedRoles.includes(((session.user as any) || {}).role)) {
     return <>{fallback}</>
   }
 

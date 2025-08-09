@@ -1,4 +1,5 @@
 'use client'
+/* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { useSession } from 'next-auth/react'
 import { useState, useEffect } from 'react'
@@ -11,9 +12,6 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/ui/card'
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'

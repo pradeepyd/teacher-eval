@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 
 interface Question {
   id: string
@@ -101,10 +102,13 @@ export default function DeanFinalReviewForm({
           }
         } else {
           const errorData = await response.json()
-          setError(errorData.error || 'Failed to fetch teacher data')
+          const msg = errorData.error || 'Failed to fetch teacher data'
+          setError(msg)
+          toast.error(msg)
         }
       } catch (error) {
         setError('Error fetching teacher data')
+        toast.error('Error fetching teacher data')
       } finally {
         setFetchLoading(false)
       }
@@ -118,11 +122,13 @@ export default function DeanFinalReviewForm({
 
     if (!finalComment.trim()) {
       setError('Final comment is required')
+      toast.error('Final comment is required')
       return
     }
 
     if (finalScore < 0) {
       setError('Final score cannot be negative')
+      toast.error('Final score cannot be negative')
       return
     }
 
@@ -162,9 +168,7 @@ export default function DeanFinalReviewForm({
 
   if (error && !teacherData) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-        {error}
-      </div>
+      <div className="text-sm text-gray-600">Failed to load teacher data.</div>
     )
   }
 
@@ -201,11 +205,7 @@ export default function DeanFinalReviewForm({
         </div>
 
         <div className="p-6">
-          {error && (
-            <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-              {error}
-            </div>
-          )}
+          {/* Toasts replace error banners */}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left Column - Evaluation Summary */}
@@ -390,26 +390,7 @@ export default function DeanFinalReviewForm({
               )}
 
               {isSubmitted && (
-                <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                  <div className="flex">
-                    <div className="flex-shrink-0">
-                      <span className="text-green-400 text-xl">✓</span>
-                    </div>
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-green-800">
-                        Final Decision Made
-                      </h3>
-                      <p className="text-sm text-green-700 mt-1">
-                        The final evaluation decision has been submitted and is now immutable.
-                      </p>
-                      <div className="mt-2">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(teacherData.existingFinalReview?.status || 'PROMOTED')}`}>
-                          {getStatusLabel(teacherData.existingFinalReview?.status || 'PROMOTED')}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <div className="text-sm text-green-700">Final decision made.</div>
               )}
             </div>
           </div>
