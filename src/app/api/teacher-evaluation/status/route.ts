@@ -16,20 +16,37 @@ export async function GET(request: NextRequest) {
       where: { departmentId: session.user.departmentId }
     })
 
-    // Get questions count for each term
-    const startQuestionsCount = await prisma.question.count({
+    // Only count published questions
+    const isPublished = termState?.visibility === 'PUBLISHED'
+
+    // Resolve deadline from the currently active term that includes this department
+    let activeTermDeadline: string | null = null
+    if (termState?.activeTerm) {
+      const activeTermRow = await prisma.term.findFirst({
+        where: {
+          status: termState.activeTerm as any,
+          departments: { some: { id: session.user.departmentId } }
+        },
+        select: { endDate: true }
+      })
+      if (activeTermRow?.endDate) {
+        activeTermDeadline = activeTermRow.endDate.toISOString()
+      }
+    }
+
+    const startQuestionsCount = isPublished ? await prisma.question.count({
       where: {
         departmentId: session.user.departmentId,
         term: 'START'
       }
-    })
+    }) : 0
 
-    const endQuestionsCount = await prisma.question.count({
+    const endQuestionsCount = isPublished ? await prisma.question.count({
       where: {
         departmentId: session.user.departmentId,
         term: 'END'
       }
-    })
+    }) : 0
 
     // Get teacher's submission status for each term
     const startAnswersCount = await prisma.teacherAnswer.count({
@@ -75,6 +92,10 @@ export async function GET(request: NextRequest) {
     const startStatus = getTermStatus(startQuestionsCount, startAnswersCount, !!startSelfComment)
     const endStatus = getTermStatus(endQuestionsCount, endAnswersCount, !!endSelfComment)
 
+    const nowIso = new Date().toISOString()
+    const startDeadline = termState?.activeTerm === 'START' ? activeTermDeadline : null
+    const endDeadline = termState?.activeTerm === 'END' ? activeTermDeadline : null
+
     return NextResponse.json({
       activeTerm: termState?.activeTerm || null,
       start: {
@@ -82,14 +103,16 @@ export async function GET(request: NextRequest) {
         questionsCount: startQuestionsCount,
         answersCount: startAnswersCount,
         hasSelfComment: !!startSelfComment,
-        canSubmit: termState?.activeTerm === 'START' && startStatus !== 'SUBMITTED'
+        canSubmit: isPublished && termState?.activeTerm === 'START' && startStatus !== 'SUBMITTED' && (!!startDeadline && nowIso <= startDeadline),
+        deadline: startDeadline
       },
       end: {
         status: endStatus,
         questionsCount: endQuestionsCount,
         answersCount: endAnswersCount,
         hasSelfComment: !!endSelfComment,
-        canSubmit: termState?.activeTerm === 'END' && endStatus !== 'SUBMITTED'
+        canSubmit: isPublished && termState?.activeTerm === 'END' && endStatus !== 'SUBMITTED' && (!!endDeadline && nowIso <= endDeadline),
+        deadline: endDeadline
       }
     })
   } catch (error) {

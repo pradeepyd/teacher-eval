@@ -1,12 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { use, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
 import EvaluationForm from '@/components/EvaluationForm'
 
-type PageProps = any
+type Params = { term: string }
+type PageProps = { params: Promise<Params> } | { params: Params }
 
 export default function EvaluationPage({ params }: PageProps) {
   const [loading, setLoading] = useState(false)
@@ -14,7 +16,8 @@ export default function EvaluationPage({ params }: PageProps) {
   const [success, setSuccess] = useState('')
   const router = useRouter()
 
-  const { term } = params
+  const resolved = (params as any)?.then ? use(params as Promise<Params>) : (params as Params)
+  const { term } = resolved
 
   const handleSubmit = async (answers: { questionId: string; answer: string }[], selfComment: string) => {
     setLoading(true)
@@ -35,16 +38,19 @@ export default function EvaluationPage({ params }: PageProps) {
       })
 
       if (response.ok) {
-        setSuccess('Evaluation submitted successfully!')
+        toast.success('Evaluation submitted successfully')
         setTimeout(() => {
           router.push('/dashboard/teacher')
-        }, 2000)
+        }, 1500)
       } else {
         const errorData = await response.json()
-        setError(errorData.error || 'Failed to submit evaluation')
+        const msg = errorData.error || 'Failed to submit evaluation'
+        setError(msg)
+        toast.error(msg)
       }
     } catch (error) {
       setError('Error submitting evaluation')
+      toast.error('Error submitting evaluation')
     } finally {
       setLoading(false)
     }
@@ -64,7 +70,7 @@ export default function EvaluationPage({ params }: PageProps) {
 
   return (
     <RoleGuard allowedRoles={['TEACHER']}>
-      <DashboardLayout title={getPageTitle()}>
+      <DashboardLayout title={getPageTitle()} showTitle={false}>
         <div className="space-y-6">
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
@@ -72,11 +78,7 @@ export default function EvaluationPage({ params }: PageProps) {
             </div>
           )}
 
-          {success && (
-            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
-              {success}
-            </div>
-          )}
+          {/* Success toast shown instead of inline banner */}
 
           <EvaluationForm
             term={term}

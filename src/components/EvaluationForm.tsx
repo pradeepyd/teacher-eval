@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { toast } from 'sonner'
 
 interface Question {
   id: string
@@ -29,6 +30,13 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
   const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const autosaveTimerRef = useRef<NodeJS.Timeout | null>(null)
   const latestPayloadRef = useRef<{ answers?: { questionId: string; answer: string }[]; selfComment?: string }>({})
+  
+  const totalQuestions = questions.length
+  const answeredCount = questions.reduce((count, q) => {
+    const value = answers[q.id]?.trim() || ''
+    return count + (value.length > 0 ? 1 : 0)
+  }, 0)
+  const progressPercent = totalQuestions ? Math.round((answeredCount / totalQuestions) * 100) : 0
 
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -137,11 +145,13 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
     const unansweredQuestions = questions.filter(q => !answers[q.id] || answers[q.id].trim() === '')
     if (unansweredQuestions.length > 0) {
       setError(`Please answer all questions. Missing: ${unansweredQuestions.length} questions`)
+      toast.error('Please answer all questions before submitting')
       return
     }
 
     if (!selfComment.trim()) {
       setError('Self comment is required')
+      toast.error('Self comment is required')
       return
     }
 
@@ -186,18 +196,27 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">{getTermTitle()}</h2>
-          <p className="text-sm text-gray-600 mt-1">{getTermDescription()}</p>
-          {isSubmitted && (
-            <div className="mt-2">
-              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                Submitted
-              </span>
+    <div className="max-w-3xl mx-auto">
+      <div className="bg-white shadow-md rounded-xl border border-gray-100 overflow-hidden">
+        <div className="px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-blue-50">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">{getTermTitle()}</h2>
+              <p className="text-sm text-gray-600 mt-1">{getTermDescription()}</p>
             </div>
-          )}
+            <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full ${isSubmitted ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+              {isSubmitted ? 'Submitted' : 'Draft'}
+            </span>
+          </div>
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+              <span>Progress</span>
+              <span>{answeredCount} of {totalQuestions} completed</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+              <div className="h-2 bg-indigo-600" style={{ width: `${progressPercent}%` }} />
+            </div>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6">
@@ -209,13 +228,13 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
 
           <div className="space-y-8">
             {questions.map((question, index) => (
-              <div key={question.id} className="border-b border-gray-200 pb-6">
-                <div className="flex items-start space-x-3">
-                  <span className="flex-shrink-0 w-8 h-8 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-medium">
+              <div key={question.id} className="pb-6">
+                <div className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-7 h-7 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-xs font-semibold">
                     {index + 1}
                   </span>
                   <div className="flex-1">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">
+                    <h3 className="text-base md:text-lg font-medium text-gray-900 mb-3">
                       {question.question}
                     </h3>
 
@@ -224,7 +243,7 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
                         type="text"
                         value={answers[question.id] || ''}
                         onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        className="block w-full rounded-lg border border-gray-300 bg-white/90 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2"
                         placeholder="Enter your answer..."
                         disabled={!canEdit}
                         required
@@ -236,7 +255,7 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
                         value={answers[question.id] || ''}
                         onChange={(e) => handleAnswerChange(question.id, e.target.value)}
                         rows={4}
-                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        className="block w-full rounded-lg border border-gray-300 bg-white/90 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2"
                         placeholder="Enter your detailed answer..."
                         disabled={!canEdit}
                         required
@@ -253,11 +272,11 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
                               value={option}
                               checked={answers[question.id] === option}
                               onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                              className="h-4 w-4 accent-indigo-600 focus:ring-indigo-500 border-gray-300"
                               disabled={!canEdit}
                               required
                             />
-                            <span className="ml-3 text-sm text-gray-700">{option}</span>
+                            <span className="ml-3 text-sm text-gray-800">{option}</span>
                           </label>
                         ))}
                       </div>
@@ -273,10 +292,10 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
                                 type="checkbox"
                                 checked={currentAnswers.includes(option)}
                                 onChange={(e) => handleCheckboxChange(question.id, option, e.target.checked)}
-                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                className="h-4 w-4 accent-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
                                 disabled={!canEdit}
                               />
-                              <span className="ml-3 text-sm text-gray-700">{option}</span>
+                              <span className="ml-3 text-sm text-gray-800">{option}</span>
                             </label>
                           )
                         })}
@@ -288,7 +307,7 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
             ))}
 
             {/* Self Comment Section */}
-            <div className="bg-gray-50 rounded-lg p-6">
+            <div className="bg-indigo-50/60 rounded-xl p-6 border border-indigo-100">
               <h3 className="text-lg font-medium text-gray-900 mb-4">
                 Self-Assessment Comment
               </h3>
@@ -302,7 +321,7 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
                   triggerAutosave({ answers: undefined, selfComment: e.target.value })
                 }}
                 rows={6}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-lg border border-indigo-200 bg-white/90 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2"
                 placeholder="Share your thoughts, challenges, achievements, and goals..."
                 disabled={!canEdit}
                 required
@@ -316,18 +335,21 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
           </div>
 
           {canEdit && (
-            <div className="flex justify-end space-x-4 mt-8 pt-6 border-t border-gray-200">
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-3 mt-8 pt-6 border-t border-gray-100">
+              <div className="flex items-center text-xs text-gray-500 mr-auto sm:mr-0">
+                Last saved: {autosaveStatus === 'saving' ? 'saving...' : 'a moment ago'}
+              </div>
               <button
                 type="button"
-                onClick={onCancel}
-                className="px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                onClick={() => triggerAutosave({ answers: Object.entries(answers).map(([questionId, answer]) => ({ questionId, answer })), selfComment })}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
-                Cancel
+                Save Draft
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="px-6 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
               >
                 {loading ? 'Submitting...' : 'Submit Evaluation'}
               </button>

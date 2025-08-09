@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 
 export async function PUT(
   request: NextRequest,
-  { params }: any
+  context: { params: Promise<{ id: string }> } | { params: { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -14,7 +14,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const questionId = params.id
+    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
+    const questionId = resolved.id
     const { question, type, options, optionScores, order } = await request.json()
 
     if (!question || !type) {
@@ -72,7 +73,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: any
+  context: { params: Promise<{ id: string }> } | { params: { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -81,7 +82,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const questionId = params.id
+    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
+    const questionId = resolved.id
 
     // Check if question exists and belongs to HOD's department
     const existingQuestion = await prisma.question.findUnique({

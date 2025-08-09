@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 
 export async function POST(
   request: NextRequest,
-  { params }: any
+  context: { params: Promise<{ id: string }> } | { params: { id: string } }
 ) {
   try {
     const session: any = await getServerSession(authOptions as any)
@@ -16,8 +16,9 @@ export async function POST(
     }
 
     // Check if term exists
+    const resolved = 'then' in (context.params as any) ? await (context.params as Promise<{ id: string }>) : (context.params as { id: string })
     const term = await prisma.term.findUnique({
-      where: { id: params.id },
+      where: { id: resolved.id },
       include: {
         departments: true
       }
@@ -35,7 +36,7 @@ export async function POST(
     await prisma.$transaction(async (tx) => {
       // Update term status
       await tx.term.update({
-        where: { id: params.id },
+        where: { id: resolved.id },
         data: { status: 'END' }
       })
 

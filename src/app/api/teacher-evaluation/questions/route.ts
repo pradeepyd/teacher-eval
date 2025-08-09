@@ -18,7 +18,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
     }
 
-    // Get all questions for this department and term
+    // Ensure department term is published
+    const termState = await prisma.termState.findUnique({ where: { departmentId: session.user.departmentId } })
+    if (!termState || termState.activeTerm !== term || termState.visibility !== 'PUBLISHED') {
+      return NextResponse.json({ questions: [], existingSelfComment: '', isSubmitted: false, canEdit: false })
+    }
+
+    // Get all questions for this department and term (published only)
     const questions = await prisma.question.findMany({
       where: {
         departmentId: session.user.departmentId,

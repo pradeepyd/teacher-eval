@@ -388,7 +388,14 @@ export default function AsstDeanDashboard() {
                         <CardTitle className="text-lg">{teacher.name}</CardTitle>
                         <p className="text-sm text-gray-600">{teacher.email}</p>
                       </div>
-                      <Badge variant={teacher.status === 'REVIEWED' ? 'default' : 'secondary'}>
+                      <Badge
+                        variant={teacher.status === 'REVIEWED' ? 'default' : 'secondary'}
+                        className={
+                          teacher.status === 'REVIEWED'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-amber-100 text-amber-700'
+                        }
+                      >
                         {teacher.status === 'REVIEWED' ? 'Completed' : 'Pending'}
                       </Badge>
                     </div>
@@ -416,11 +423,11 @@ export default function AsstDeanDashboard() {
                               </div>
                             </TabsContent>
                             
-                            <TabsContent value="teacher-answers" className="space-y-4">
+                          <TabsContent value="teacher-answers" className="space-y-4">
                               <div className="space-y-3">
                                 {teacher.teacherAnswers?.map((answer, index) => (
                                   <div key={index} className="p-3 bg-blue-50 rounded-lg">
-                                    <p className="text-sm font-medium">Question {index + 1}: {answer.question.question}</p>
+                                    <p className="text-sm font-medium">{answer.question.question}</p>
                                     <p className="text-sm text-gray-700 mt-1">{answer.answer}</p>
                                   </div>
                                 )) || <p className="text-sm text-gray-500">No answers available</p>}
@@ -463,7 +470,7 @@ export default function AsstDeanDashboard() {
                                   <Button 
                                     onClick={() => handleSubmit(teacher)}
                                     disabled={teacher.status === 'REVIEWED' || submitting}
-                                    className="w-full"
+                                    className="w-full bg-[#2357F5] hover:bg-[#1f4cda]"
                                   >
                                     {submitting ? (
                                       <>

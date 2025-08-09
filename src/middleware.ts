@@ -6,15 +6,16 @@ export default withAuth(
     const token = req.nextauth.token
     const { pathname } = req.nextUrl
 
-    // Public routes that don't require authentication
-    if (pathname === '/login' || pathname === '/') {
+  // Public routes that don't require authentication
+  if (pathname === '/login') {
       return NextResponse.next()
     }
 
-    // If no token, redirect to login
-    if (!token) {
-      return NextResponse.redirect(new URL('/login', req.url))
-    }
+  // If no token, redirect to login (and redirect base path to login)
+  if (!token) {
+    const target = pathname === '/' ? '/login' : '/login'
+    return NextResponse.redirect(new URL(target, req.url))
+  }
 
     const userRole = token.role as string
 

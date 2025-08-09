@@ -6,6 +6,7 @@ import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { Plus, Eye, Trash2, Save, Send, Loader2 } from 'lucide-react'
 
 interface Question {
@@ -59,6 +61,8 @@ export default function HodDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
+  const [visibility, setVisibility] = useState<'DRAFT' | 'PUBLISHED'>('DRAFT')
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false)
 
   // Question form state
   const [newQuestion, setNewQuestion] = useState({
@@ -108,6 +112,7 @@ export default function HodDashboard() {
       if (response.ok) {
         const data = await response.json()
         setActiveTerm(data.activeTerm || null)
+        if (data.visibility) setVisibility(data.visibility)
       }
     } catch (e) {
       // ignore
@@ -303,7 +308,7 @@ export default function HodDashboard() {
                     Welcome, {session.user.name}!
                   </h2>
                   <p className="text-gray-600">
-                    Department: Computer Science
+                    Department: {(session as any)?.user?.departmentName || '—'}
                   </p>
                 </div>
                 <Badge variant="outline" className="text-base">Head of Department</Badge>
@@ -333,169 +338,251 @@ export default function HodDashboard() {
 
           {/* Tab 1: Question Management */}
           <TabsContent value="questions" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Add Question Form */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Plus className="h-5 w-5" />
-                    Add New Question
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Question Text</label>
-                    <Textarea
-                      value={newQuestion.question}
-                      onChange={(e) => setNewQuestion({ ...newQuestion, question: e.target.value })}
-                      placeholder="Enter your question..."
-                      rows={3}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Answer Type</label>
-                    <Select
-                      value={newQuestion.type}
-                      onValueChange={(value) => 
-                        setNewQuestion({ ...newQuestion, type: value as 'TEXT' | 'TEXTAREA' | 'MCQ' | 'CHECKBOX' })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="TEXT">Short Text</SelectItem>
-                        <SelectItem value="TEXTAREA">Long Text</SelectItem>
-                        <SelectItem value="MCQ">Radio (Single Choice)</SelectItem>
-                        <SelectItem value="CHECKBOX">Checkbox (Multiple Choice)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {(newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX') && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              {/* LEFT: Add Question + List */}
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Plus className="h-5 w-5" />
+                      Add New Question
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                  
                     <div>
-                      <label className="block text-sm font-medium mb-2">Options and Weights</label>
-                      {newQuestion.options.map((option, index) => (
-                        <div key={index} className="flex gap-2 mb-2 items-center">
-                          <Input
-                            value={option}
-                            onChange={(e) => {
-                              const newOptions = [...newQuestion.options]
-                              newOptions[index] = e.target.value
-                              setNewQuestion({ ...newQuestion, options: newOptions })
-                            }}
-                            placeholder={`Option ${index + 1}`}
-                            className="flex-1"
-                          />
-                          <Input
-                            type="number"
-                            value={newQuestion.optionScores[index] ?? 0}
-                            onChange={(e) => {
-                              const scores = [...newQuestion.optionScores]
-                              scores[index] = parseInt(e.target.value) || 0
-                              setNewQuestion({ ...newQuestion, optionScores: scores })
-                            }}
-                            className="w-24"
-                            placeholder="Weight"
-                          />
-                          {newQuestion.options.length > 1 && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                const newOptions = newQuestion.options.filter((_, i) => i !== index)
-                                const newScores = newQuestion.optionScores.filter((_, i) => i !== index)
-                                setNewQuestion({ ...newQuestion, options: newOptions, optionScores: newScores })
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setNewQuestion({
-                          ...newQuestion,
-                          options: [...newQuestion.options, ''],
-                          optionScores: [...newQuestion.optionScores, 0],
-                        })}
+                      <label className="block text-sm font-medium mb-2">Question Text <span className="text-destructive">*</span></label>
+                      <Textarea
+                        value={newQuestion.question}
+                        onChange={(e) => setNewQuestion({ ...newQuestion, question: e.target.value })}
+                        placeholder="Enter your evaluation question..."
+                        rows={3}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Answer Type <span className="text-destructive">*</span></label>
+                      <Select
+                        value={newQuestion.type}
+                        onValueChange={(value) => 
+                          setNewQuestion({ ...newQuestion, type: value as 'TEXT' | 'TEXTAREA' | 'MCQ' | 'CHECKBOX' })
+                        }
                       >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add Option
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select answer type..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="TEXT">Short Text</SelectItem>
+                          <SelectItem value="TEXTAREA">Long Text</SelectItem>
+                          <SelectItem value="MCQ">MCQ (Single Choice)</SelectItem>
+                          <SelectItem value="CHECKBOX">Checkbox (Multiple Choice)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-1">Choose the answer format for this question</p>
+                    </div>
+
+                    {(newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX') && (
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Options and Weights</label>
+                        {newQuestion.options.map((option, index) => (
+                          <div key={index} className="flex gap-2 mb-2 items-center">
+                            <Input
+                              value={option}
+                              onChange={(e) => {
+                                const newOptions = [...newQuestion.options]
+                                newOptions[index] = e.target.value
+                                setNewQuestion({ ...newQuestion, options: newOptions })
+                              }}
+                              placeholder={`Option ${index + 1}`}
+                              className="flex-1"
+                            />
+                            <Input
+                              type="number"
+                              value={newQuestion.optionScores[index] ?? 0}
+                              onChange={(e) => {
+                                const scores = [...newQuestion.optionScores]
+                                scores[index] = parseInt(e.target.value) || 0
+                                setNewQuestion({ ...newQuestion, optionScores: scores })
+                              }}
+                              className="w-24"
+                              placeholder="Weight"
+                            />
+                            {newQuestion.options.length > 1 && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const newOptions = newQuestion.options.filter((_, i) => i !== index)
+                                  const newScores = newQuestion.optionScores.filter((_, i) => i !== index)
+                                  setNewQuestion({ ...newQuestion, options: newOptions, optionScores: newScores })
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setNewQuestion({
+                            ...newQuestion,
+                            options: [...newQuestion.options, ''],
+                            optionScores: [...newQuestion.optionScores, 0],
+                          })}
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add Option
+                        </Button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="required"
+                        checked={newQuestion.required}
+                        onCheckedChange={(checked) => setNewQuestion({ ...newQuestion, required: checked })}
+                      />
+                      <label htmlFor="required" className="text-sm font-medium">Required</label>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2">
+                      <Button 
+                        onClick={addQuestion} 
+                        disabled={loading}
+                      >
+                        {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                        Add Question
                       </Button>
                     </div>
-                  )}
+                  </CardContent>
+                </Card>
 
-                  <div className="flex items-center space-x-2">
-                    <Switch
-                      id="required"
-                      checked={newQuestion.required}
-                      onCheckedChange={(checked) => setNewQuestion({ ...newQuestion, required: checked })}
-                    />
-                    <label htmlFor="required" className="text-sm font-medium">Required</label>
-                  </div>
+                {/* Questions List */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>Questions List</span>
+                      <span className="text-sm text-muted-foreground">{questions.length} questions</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {questions.map((question, index) => (
+                        <div key={question.id} className="flex items-start justify-between rounded-md border p-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium">Question {index + 1}</span>
+                              <Badge variant="outline">{question.type}</Badge>
+                              {question.required && <Badge variant="destructive">Required</Badge>}
+                            </div>
+                            <div className="text-sm text-gray-700">{question.question}</div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteQuestion(question.id)}
+                            disabled={loading}
+                            aria-label="Delete question"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      {questions.length === 0 && (
+                        <div className="text-center text-sm text-muted-foreground">No questions added yet. Create your first question above.</div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
 
-                  <Button 
-                    onClick={addQuestion} 
-                    className="w-full"
-                    disabled={loading}
-                  >
-                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                    Add Question
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Questions List */}
+              {/* RIGHT: Live Preview */}
               <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>Questions ({questions.length})</CardTitle>
+                <CardHeader className="flex items-center justify-between">
+                  <CardTitle>Live Preview</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs rounded-full px-2 py-1 border">
+                      Visibility: <span className={visibility==='PUBLISHED' ? 'text-green-700' : 'text-yellow-700'}>{visibility}</span>
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => { await fetchTermState(); }}
+                    >Refresh</Button>
+
+                    <AlertDialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" disabled={!activeTerm || visibility==='PUBLISHED'}>Publish</Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Publish questions for this term?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Publishing makes the form visible to all teachers in your department for the current term. This action can be done only once per term and cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            disabled={loading}
+                            onClick={async () => {
+                              const deptId = (session as any)?.user?.departmentId
+                              if (!deptId || !activeTerm) return
+                              setLoading(true)
+                              setError(null)
+                              try {
+                                const res = await fetch(`/api/departments/${deptId}/term-state`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ activeTerm, visibility: 'PUBLISHED' })
+                                })
+                                if (!res.ok) {
+                                  const data = await res.json().catch(() => ({}))
+                                  throw new Error(data.error || 'Failed to publish')
+                                }
+                                setVisibility('PUBLISHED')
+                                setSuccess('Questions published for teachers')
+                              } catch (e) {
+                                setError(e instanceof Error ? e.message : 'Failed to publish')
+                              } finally {
+                                setLoading(false)
+                                setPublishConfirmOpen(false)
+                              }
+                            }}
+                          >Confirm Publish</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {questions.map((question, index) => (
-                      <Card key={question.id} className="border-l-4 border-l-blue-500">
-                        <CardContent className="pt-4">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className="font-medium">Q{index + 1}.</span>
-                                <span>{question.question}</span>
-                                {question.required && (
-                                  <Badge variant="destructive" className="text-xs">Required</Badge>
-                                )}
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                Type: {question.type.replace('_', ' ')}
-                              </div>
-                              {question.options && question.options.length > 0 && (
-                                <div className="mt-2">
-                                  <div className="text-sm text-gray-600">Options:</div>
-                                  <ul className="list-disc list-inside text-sm text-gray-500">
-                                    {question.options.map((option, i) => (
-                                      <li key={i}>{option}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => deleteQuestion(question.id)}
-                              disabled={loading}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                  {questions.length === 0 ? (
+                    <div className="text-center text-muted-foreground py-10">
+                      <div className="text-lg mb-1">Form Preview</div>
+                      <div className="text-sm">Add questions to see how your evaluation form will look to users.</div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {questions.map((q, i) => (
+                        <div key={q.id} className="rounded-md border p-3">
+                          <div className="font-medium">Q{i + 1}. {q.question}</div>
+                          <div className="text-xs text-muted-foreground mt-1">Type: {q.type}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Counters */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                    <div className="rounded-lg border p-4 text-center">
+                      <div className="text-3xl font-bold">{questions.length}</div>
+                      <div className="text-sm text-muted-foreground">Total Questions</div>
+                    </div>
+                    <div className="rounded-lg border p-4 text-center">
+                      <div className="text-3xl font-bold">{questions.filter(q => (q as any).required).length}</div>
+                      <div className="text-sm text-muted-foreground">Required Questions</div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -505,86 +592,129 @@ export default function HodDashboard() {
           {/* Tab 2: Evaluate Teachers */}
           <TabsContent value="evaluate" className="space-y-6">
             <div className="grid grid-cols-1 gap-6">
-              {teachers.map((teacher) => (
-                <Card key={teacher.id}>
+              {teachers.map((teacher, idx) => (
+                <Card key={teacher.id} className="overflow-hidden">
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <div>
                         <CardTitle>{teacher.name}</CardTitle>
                         <p className="text-sm text-gray-500">{teacher.email}</p>
                       </div>
-                      <Badge variant={getStatusColor(teacher.status)}>
+                      <Badge
+                        variant={getStatusColor(teacher.status)}
+                        className={
+                          teacher.status === 'SUBMITTED'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : teacher.status === 'IN_PROGRESS'
+                              ? 'bg-amber-100 text-amber-700'
+                              : teacher.status === 'NOT_STARTED'
+                                ? 'bg-rose-100 text-rose-700'
+                                : undefined
+                        }
+                      >
                         {getStatusText(teacher.status)}
                       </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-4">
+                  <CardContent className="space-y-3">
+                    <Separator />
                     <Accordion type="single" collapsible>
-                      <AccordionItem value="answers">
-                        <AccordionTrigger>View Teacher Answers</AccordionTrigger>
+                      <AccordionItem value={teacher.id}>
+                        <AccordionTrigger
+                          className="text-blue-600 hover:underline underline-offset-2 decoration-blue-400"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`/api/reviews/hod/teacher-data?teacherId=${teacher.id}&term=${activeTerm}`)
+                              if (!res.ok) return
+                              const detail = await res.json()
+                              const answers: Record<string,string> = {}
+                              detail.answers?.forEach((a: any) => { answers[a.question?.question || a.questionId] = a.answer })
+                              setTeachers(prev => prev.map(t => t.id === teacher.id ? {
+                                ...t,
+                                answers,
+                                selfComment: detail.selfComment || t.selfComment
+                              } : t))
+                            } catch {}
+                          }}
+                        >View Teacher Answers</AccordionTrigger>
                         <AccordionContent>
                           <div className="space-y-3">
-                            {Object.entries(teacher.answers).map(([questionId, answer]) => (
-                              <div key={questionId} className="border-l-2 border-gray-200 pl-4">
-                                <div className="text-sm font-medium text-gray-700">
-                                  Question {questionId}
-                                </div>
-                                <div className="text-sm text-gray-600 mt-1">{answer}</div>
-                              </div>
-                            ))}
-                            {teacher.selfComment && (
-                              <div className="border-l-2 border-blue-200 pl-4">
-                                <div className="text-sm font-medium text-gray-700">
-                                  Teacher's Self Comment
-                                </div>
-                                <div className="text-sm text-gray-600 mt-1">{teacher.selfComment}</div>
-                              </div>
+                            {Object.keys(teacher.answers).length === 0 ? (
+                              <div className="text-sm text-muted-foreground">No answers loaded. Click the row again to refresh.</div>
+                            ) : (
+                              <>
+                                {Object.entries(teacher.answers).map(([questionText, answer]) => (
+                                  <div key={questionText} className="border-l-2 border-gray-200 pl-4">
+                                    <div className="text-sm font-medium text-gray-700">
+                                      {questionText}
+                                    </div>
+                                    <div className="text-sm text-gray-600 mt-1">{answer}</div>
+                                  </div>
+                                ))}
+                                {teacher.selfComment && (
+                                  <div className="border-l-2 border-blue-200 pl-4">
+                                    <div className="text-sm font-medium text-gray-700">
+                                      Teacher's Self Comment
+                                    </div>
+                                    <div className="text-sm text-gray-600 mt-1">{teacher.selfComment}</div>
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                         </AccordionContent>
                       </AccordionItem>
                     </Accordion>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-2">HOD Comment</label>
-                        <Textarea
-                          value={teacher.hodComment}
-                          onChange={(e) => updateTeacherEvaluation(teacher.id, 'hodComment', e.target.value)}
-                          placeholder="Add your evaluation comment..."
-                          rows={3}
-                          disabled={!teacher.canReview}
-                        />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+                      {/* Left column: comment and points stacked */}
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-col md:flex-row md:items-center md:gap-3">
+                          <label className="text-sm font-medium mb-2 md:mb-0 md:w-40">HOD Comment</label>
+                          <Textarea
+                            value={teacher.hodComment}
+                            onChange={(e) => updateTeacherEvaluation(teacher.id, 'hodComment', e.target.value)}
+                            placeholder="Add your evaluation comment..."
+                            rows={2}
+                            className="min-h-0 md:flex-1"
+                            disabled={!teacher.canReview}
+                          />
+                        </div>
+                        <div className="flex flex-col md:flex-row md:items-center md:gap-3">
+                          <label className="text-sm font-medium mb-2 md:mb-0 md:w-40">Points (1-10)</label>
+                          <Input
+                            type="number"
+                            min="1"
+                            max="10"
+                            value={teacher.hodScore}
+                            onChange={(e) => updateTeacherEvaluation(teacher.id, 'hodScore', parseInt(e.target.value) || 0)}
+                            placeholder="Enter points..."
+                            disabled={!teacher.canReview}
+                            className="md:w-40"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Points (1-10)</label>
-                        <Input
-                          type="number"
-                          min="1"
-                          max="10"
-                          value={teacher.hodScore}
-                          onChange={(e) => updateTeacherEvaluation(teacher.id, 'hodScore', parseInt(e.target.value) || 0)}
-                          placeholder="Enter points..."
-                          disabled={!teacher.canReview}
-                        />
+
+                      {/* Right column: actions stacked */}
+                      <div className="flex flex-col items-stretch md:items-end gap-2 pt-1">
+                        {teacher.canReview && (
+                          <>
+                            <Button variant="outline" className="w-full md:w-44" disabled={loading}>
+                              <Save className="h-4 w-4 mr-2" />
+                              Save Draft
+                            </Button>
+                            <Button
+                              className="w-full md:w-44 bg-[#2357F5] hover:bg-[#1f4cda]"
+                              onClick={() => submitTeacherEvaluation(teacher.id)}
+                              disabled={loading || teacher.status === 'REVIEWED'}
+                            >
+                              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                              Submit Evaluation
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
-
-                    {teacher.canReview && (
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" disabled={loading}>
-                          <Save className="h-4 w-4 mr-2" />
-                          Save Draft
-                        </Button>
-                        <Button
-                          onClick={() => submitTeacherEvaluation(teacher.id)}
-                          disabled={loading || teacher.status === 'REVIEWED'}
-                        >
-                          {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                          Submit Evaluation
-                        </Button>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               ))}

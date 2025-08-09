@@ -7,11 +7,12 @@ import { ChevronLeft } from 'lucide-react'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
-  title: string
+  title?: string
   showBack?: boolean
+  showTitle?: boolean
 }
 
-export default function DashboardLayout({ children, title, showBack = true }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, title, showBack = true, showTitle = true }: DashboardLayoutProps) {
   const { data: session } = useSession()
   const router = useRouter()
 
@@ -63,7 +64,9 @@ export default function DashboardLayout({ children, title, showBack = true }: Da
               </button>
             </div>
           )}
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">{title}</h1>
+          {showTitle && title ? (
+            <h1 className="text-2xl font-bold text-gray-900 mb-6">{title}</h1>
+          ) : null}
           {children}
         </div>
       </div>

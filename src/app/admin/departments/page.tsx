@@ -463,7 +463,7 @@ export default function DepartmentsPage() {
 
                         {/* Status */}
                           <div className="flex items-center gap-2 min-w-[180px] justify-end">
-                            <Badge className={status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
+                          <Badge className={status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
                               {status}
                             </Badge>
                             <Button

@@ -118,6 +118,7 @@ model TermState {
   id           String   @id @default(cuid())
   departmentId String   @unique
   activeTerm   TermType
+  visibility   String   @default("DRAFT") // DRAFT or PUBLISHED for active term visibility
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -170,6 +171,7 @@ model SelfComment {
   teacherId String
   term      TermType
   comment   String
+  submitted Boolean  @default(false)
   termId    String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

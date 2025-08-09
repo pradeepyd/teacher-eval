@@ -88,15 +88,18 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // Check if already submitted
+    // Check if already submitted (answers + submitted self comment)
     const existingAnswers = await prisma.teacherAnswer.count({
       where: {
         teacherId: session.user.id,
         term: term as 'START' | 'END'
       }
     })
-
-    if (existingAnswers > 0) {
+    const existingSubmittedComment = await prisma.selfComment.findUnique({
+      where: { teacherId_term: { teacherId: session.user.id, term: term as 'START' | 'END' } },
+      select: { submitted: true }
+    })
+    if (existingAnswers > 0 && existingSubmittedComment?.submitted) {
       return NextResponse.json({ error: 'Evaluation already submitted for this term' }, { status: 400 })
     }
 
@@ -154,11 +157,14 @@ export async function POST(request: NextRequest) {
       )
 
       // Save self comment
-      const savedSelfComment = await tx.selfComment.create({
-        data: {
+      const savedSelfComment = await tx.selfComment.upsert({
+        where: { teacherId_term: { teacherId: session.user.id, term: term as 'START' | 'END' } },
+        update: { comment: selfComment.trim(), termId: resolvedTermId, submitted: true },
+        create: {
           teacherId: session.user.id,
           term: term as 'START' | 'END',
           comment: selfComment.trim(),
+          submitted: true,
           termId: resolvedTermId,
         }
       })
@@ -229,7 +235,7 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    // Save/Upsert self comment if provided
+    // Save/Upsert self comment if provided (as draft, not submitted)
     if (typeof selfComment === 'string') {
       await prisma.selfComment.upsert({
         where: {
@@ -238,11 +244,12 @@ export async function PATCH(request: NextRequest) {
             term: term as 'START' | 'END'
           }
         },
-        update: { comment: selfComment.trim(), termId: resolvedTermId },
+        update: { comment: selfComment.trim(), termId: resolvedTermId, submitted: false },
         create: {
           teacherId: session.user.id,
           term: term as 'START' | 'END',
           comment: selfComment.trim(),
+          submitted: false,
           termId: resolvedTermId
         }
       })

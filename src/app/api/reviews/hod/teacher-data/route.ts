@@ -15,8 +15,63 @@ export async function GET(request: NextRequest) {
     const teacherId = searchParams.get('teacherId')
     const term = searchParams.get('term')
 
-    if (!teacherId || !term || !['START', 'END'].includes(term)) {
-      return NextResponse.json({ error: 'Teacher ID and valid term are required' }, { status: 400 })
+    // If no teacherId provided, return list of teachers in HOD's department with basic review status
+    if (!teacherId) {
+      const departmentId = session.user.departmentId as string | null
+      if (!departmentId) {
+        return NextResponse.json({ teachers: [] })
+      }
+
+      // Determine active term for department (optional)
+      const termState = await prisma.termState.findUnique({ where: { departmentId } })
+      const activeTerm = termState?.activeTerm || 'START'
+
+      const teachers = await prisma.user.findMany({
+        where: { role: 'TEACHER', departmentId },
+        select: { id: true, name: true, email: true }
+      })
+
+      // Fetch existing HOD reviews to decide status/canReview
+      const reviews = await prisma.hodReview.findMany({
+        where: { reviewerId: session.user.id, term: activeTerm },
+        select: { teacherId: true, submitted: true, comments: true, scores: true }
+      })
+
+      const teacherIdToReview = new Map(reviews.map(r => [r.teacherId, r]))
+
+      // For each teacher, detect if they have submitted their evaluation for the active term
+      const shaped = await Promise.all(teachers.map(async (t) => {
+        const r = teacherIdToReview.get(t.id)
+        const hodReviewed = !!r?.submitted
+
+        // teacher submission check: answers exist OR selfComment.submitted === true
+        const [answersCount, selfComment] = await Promise.all([
+          prisma.teacherAnswer.count({ where: { teacherId: t.id, term: activeTerm as any } }),
+          prisma.selfComment.findUnique({ where: { teacherId_term: { teacherId: t.id, term: activeTerm as any } }, select: { submitted: true } })
+        ])
+        const teacherSubmitted = answersCount > 0 || !!selfComment?.submitted
+
+        const status = hodReviewed ? 'REVIEWED' : (teacherSubmitted ? 'SUBMITTED' : 'NOT_STARTED')
+
+        return {
+          id: t.id,
+          name: t.name,
+          email: t.email,
+          status,
+          answers: {},
+          selfComment: '',
+          hodComment: (r?.comments as string) || '',
+          hodScore: typeof (r?.scores as any)?.totalScore === 'number' ? (r?.scores as any).totalScore : 0,
+          canReview: teacherSubmitted && !hodReviewed,
+        }
+      }))
+
+      return NextResponse.json({ teachers: shaped })
+    }
+
+    // For single-teacher detail fetch, require valid term
+    if (!term || !['START', 'END'].includes(term)) {
+      return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
     }
 
     // Verify teacher belongs to HOD's department
