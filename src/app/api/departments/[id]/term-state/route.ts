@@ -60,10 +60,17 @@ export async function PUT(
           }, { status: 400 })
         }
       }
+
+      // If Admin switches activeTerm but doesn't specify visibility, reset visibility to DRAFT for the new term
+      let nextVisibility = visibility
+      if (current && current.activeTerm !== activeTerm && !visibility) {
+        nextVisibility = 'DRAFT'
+      }
+
       const termState = await prisma.termState.upsert({
         where: { departmentId },
-        update: { activeTerm, ...(visibility ? { visibility } : {}), ...(hodVisibility ? { hodVisibility } : {}) },
-        create: { departmentId, activeTerm, visibility: visibility || 'DRAFT', hodVisibility: hodVisibility || 'DRAFT' }
+        update: { activeTerm, ...(nextVisibility ? { visibility: nextVisibility } : {}), ...(hodVisibility ? { hodVisibility } : {}) },
+        create: { departmentId, activeTerm, visibility: nextVisibility || 'DRAFT', hodVisibility: hodVisibility || 'DRAFT' }
       })
       return NextResponse.json(termState)
     }

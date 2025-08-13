@@ -79,7 +79,8 @@ export default function HodDashboard() {
   // Fetch questions
   const fetchQuestions = async () => {
     try {
-      const response = await fetch('/api/questions')
+      const query = activeTerm ? `?term=${activeTerm}` : ''
+      const response = await fetch(`/api/questions${query}`)
       if (!response.ok) {
         throw new Error('Failed to fetch questions')
       }
@@ -121,6 +122,12 @@ export default function HodDashboard() {
       // ignore
     }
   }
+
+  // When activeTerm changes, refresh questions
+  useEffect(() => {
+    fetchQuestions()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTerm])
 
   // Add new question
   const addQuestion = async () => {
@@ -534,7 +541,21 @@ export default function HodDashboard() {
               {/* RIGHT: Live Preview */}
               <Card>
                 <CardHeader className="flex items-center justify-between">
-                  <CardTitle>Live Preview</CardTitle>
+                  <div className="flex items-center gap-3">
+                    <CardTitle>Live Preview</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs">Term</span>
+                      <Select value={activeTerm || undefined} onValueChange={(v: any) => setActiveTerm(v)}>
+                        <SelectTrigger className="h-8 w-[110px]">
+                          <SelectValue placeholder="Select" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="START">START</SelectItem>
+                          <SelectItem value="END">END</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs rounded-full px-2 py-1 border">
                       Visibility: <span className={visibility==='PUBLISHED' ? 'text-green-700' : 'text-yellow-700'}>{visibility}</span>
