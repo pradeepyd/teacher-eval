@@ -698,7 +698,26 @@ export default function HodDashboard() {
                                     <div className="text-sm font-medium text-gray-700">
                                       Q{idx + 1}: {questionText}
                                     </div>
-                                    <div className="text-sm text-gray-600 mt-1">{answer}</div>
+                                    <div className="text-sm text-gray-600 mt-1">
+                                      {(() => {
+                                        try {
+                                          const parsed = typeof answer === 'string' ? JSON.parse(answer) : null
+                                          if (parsed && parsed.details && typeof parsed.details === 'object') {
+                                            const entries = Object.entries(parsed.details as Record<string,string>).filter(([,v]) => (v||'').trim().length > 0)
+                                            if (entries.length > 0) {
+                                              return (
+                                                <div className="space-y-1">
+                                                  {entries.map(([label, value]) => (
+                                                    <div key={label}><span className="font-medium">{label}:</span> {value}</div>
+                                                  ))}
+                                                </div>
+                                              )
+                                            }
+                                          }
+                                        } catch {}
+                                        return <span>{String(answer)}</span>
+                                      })()}
+                                    </div>
                                   </div>
                                 ))}
                                 {teacher.selfComment && (

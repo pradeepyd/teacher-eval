@@ -120,20 +120,47 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
   const handleCheckboxChange = (questionId: string, option: string, checked: boolean) => {
     if (!canEdit) return
 
+    // Detect if this checkbox question has special options that require textareas
+    // We support two special labels: "Target" and "Actions to be Implemented".
+    const question = questions.find(q => q.id === questionId)
+    const hasSpecialTextareas = question?.options?.some(opt => /target/i.test(opt) || /actions to be implemented/i.test(opt))
+
+    if (hasSpecialTextareas) {
+      // For special checkbox with textareas, we store the answer as a JSON string
+      // of shape: { selected: string[], details: Record<string,string> }
+      let parsed: { selected: string[]; details: Record<string, string> } = { selected: [], details: {} }
+      try {
+        parsed = answers[questionId] ? JSON.parse(answers[questionId]) : parsed
+        if (!Array.isArray(parsed.selected)) parsed.selected = []
+        if (typeof parsed.details !== 'object' || parsed.details === null) parsed.details = {}
+      } catch (_e) {
+        // Fallback if previous value was comma-separated list
+        const list = answers[questionId] ? answers[questionId].split(',').map(s => s.trim()).filter(Boolean) : []
+        parsed = { selected: list, details: {} }
+      }
+
+      let nextSelected: string[]
+      if (checked) {
+        nextSelected = Array.from(new Set([...(parsed.selected || []), option]))
+      } else {
+        nextSelected = (parsed.selected || []).filter(v => v !== option)
+      }
+
+      const encoded = JSON.stringify({ selected: nextSelected, details: parsed.details || {} })
+      setAnswers(prev => ({ ...prev, [questionId]: encoded }))
+      triggerAutosave({ answers: [{ questionId, answer: encoded }], selfComment: undefined })
+      return
+    }
+
+    // Default behavior for regular checkbox questions (comma-separated string)
     const currentAnswers = answers[questionId] ? answers[questionId].split(',').map(s => s.trim()).filter(s => s) : []
-    
     let newAnswers: string[]
     if (checked) {
       newAnswers = [...currentAnswers, option]
     } else {
       newAnswers = currentAnswers.filter(answer => answer !== option)
     }
-    
-    setAnswers(prev => ({
-      ...prev,
-      [questionId]: newAnswers.join(', ')
-    }))
-
+    setAnswers(prev => ({ ...prev, [questionId]: newAnswers.join(', ') }))
     triggerAutosave({ answers: [{ questionId, answer: newAnswers.join(', ') }], selfComment: undefined })
   }
 
@@ -278,23 +305,88 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
                     )}
 
                     {question.type === 'CHECKBOX' && (
-                      <div className="space-y-3">
-                        {question.options.map((option, optIndex) => {
+                      (() => {
+                        const hasTarget = question.options.some(opt => /target/i.test(opt))
+                        const hasActions = question.options.some(opt => /actions to be implemented/i.test(opt))
+                        const showSpecial = hasTarget || hasActions
+
+                        if (!showSpecial) {
+                          // Default checkbox rendering
                           const currentAnswers = answers[question.id] ? answers[question.id].split(',').map(s => s.trim()) : []
                           return (
-                            <label key={optIndex} className="flex items-center">
-                              <input
-                                type="checkbox"
-                                checked={currentAnswers.includes(option)}
-                                onChange={(e) => handleCheckboxChange(question.id, option, e.target.checked)}
-                                className="h-4 w-4 accent-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                disabled={!canEdit}
-                              />
-                              <span className="ml-3 text-sm text-gray-800">{option}</span>
-                            </label>
+                            <div className="space-y-3">
+                              {question.options.map((option, optIndex) => (
+                                <label key={optIndex} className="flex items-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={currentAnswers.includes(option)}
+                                    onChange={(e) => handleCheckboxChange(question.id, option, e.target.checked)}
+                                    className="h-4 w-4 accent-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                    disabled={!canEdit}
+                                  />
+                                  <span className="ml-3 text-sm text-gray-800">{option}</span>
+                                </label>
+                              ))}
+                            </div>
                           )
-                        })}
-                      </div>
+                        }
+
+                        // Special rendering: add textareas beneath specific options
+                        let parsed: { selected: string[]; details: Record<string, string> } = { selected: [], details: {} }
+                        try {
+                          parsed = answers[question.id] ? JSON.parse(answers[question.id]) : parsed
+                          if (!Array.isArray(parsed.selected)) parsed.selected = []
+                          if (typeof parsed.details !== 'object' || parsed.details === null) parsed.details = {}
+                        } catch (_e) {
+                          const list = answers[question.id] ? answers[question.id].split(',').map(s => s.trim()).filter(Boolean) : []
+                          parsed = { selected: list, details: {} }
+                        }
+
+                        const updateDetails = (label: string, value: string) => {
+                          if (!canEdit) return
+                          const next = {
+                            selected: Array.from(new Set([...(parsed.selected || []), label])),
+                            details: { ...(parsed.details || {}), [label]: value }
+                          }
+                          const encoded = JSON.stringify(next)
+                          setAnswers(prev => ({ ...prev, [question.id]: encoded }))
+                          triggerAutosave({ answers: [{ questionId: question.id, answer: encoded }], selfComment: undefined })
+                        }
+
+                        const isChecked = (label: string) => (parsed.selected || []).includes(label)
+
+                        return (
+                          <div className="space-y-4">
+                            {question.options.map((option, optIndex) => (
+                              <div key={optIndex}>
+                                <label className="flex items-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked(option)}
+                                    onChange={(e) => handleCheckboxChange(question.id, option, e.target.checked)}
+                                    className="h-4 w-4 accent-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                    disabled={!canEdit}
+                                  />
+                                  <span className="ml-3 text-sm text-gray-800">{option}</span>
+                                </label>
+
+                                {( /target/i.test(option) || /actions to be implemented/i.test(option) ) && (
+                                  <div className="mt-2 ml-7">
+                                    <textarea
+                                      value={(parsed.details && parsed.details[option]) || ''}
+                                      onChange={(e) => updateDetails(option, e.target.value)}
+                                      rows={3}
+                                      className="block w-full rounded-lg border border-gray-300 bg-white/90 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2"
+                                      placeholder={/target/i.test(option) ? 'Enter your target...' : 'Describe actions to be implemented...'}
+                                      disabled={!canEdit}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })()
                     )}
                   </div>
                 </div>

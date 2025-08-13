@@ -263,7 +263,26 @@ export default function ReviewForm({
                     
                     <div className="bg-blue-50 rounded p-3">
                       <p className="text-sm text-blue-900 font-medium mb-1">Teacher's Answer:</p>
-                      <p className="text-blue-800">{answer.answer}</p>
+                      <div className="text-blue-800">
+                        {(() => {
+                          try {
+                            const parsed = typeof answer.answer === 'string' ? JSON.parse(answer.answer) : null
+                            if (parsed && parsed.details && typeof parsed.details === 'object') {
+                              const entries = Object.entries(parsed.details as Record<string,string>).filter(([,v]) => (v||'').trim().length > 0)
+                              if (entries.length > 0) {
+                                return (
+                                  <div className="space-y-1">
+                                    {entries.map(([label, value]) => (
+                                      <div key={label}><span className="font-semibold">{label}:</span> {value}</div>
+                                    ))}
+                                  </div>
+                                )
+                              }
+                            }
+                          } catch {}
+                          return <span>{String(answer.answer)}</span>
+                        })()}
+                      </div>
                     </div>
 
                     {/* Score Input */}

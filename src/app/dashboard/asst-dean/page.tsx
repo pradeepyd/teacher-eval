@@ -460,7 +460,26 @@ export default function AsstDeanDashboard() {
                                   {(teacher.teacherAnswers?.[activeTerm || 'START'] || []).map((answer, index) => (
                                   <div key={index} className="p-3 bg-blue-50 rounded-lg">
                                     <p className="text-sm font-medium">Question {index + 1}: {answer.question.question}</p>
-                                    <p className="text-sm text-gray-700 mt-1">{answer.answer}</p>
+                                    <div className="text-sm text-gray-700 mt-1">
+                                      {(() => {
+                                        try {
+                                          const parsed = typeof answer.answer === 'string' ? JSON.parse(answer.answer) : null
+                                          if (parsed && parsed.details && typeof parsed.details === 'object') {
+                                            const entries = Object.entries(parsed.details as Record<string,string>).filter(([,v]) => (v||'').trim().length > 0)
+                                            if (entries.length > 0) {
+                                              return (
+                                                <div className="space-y-1">
+                                                  {entries.map(([label, value]) => (
+                                                    <div key={label}><span className="font-medium">{label}:</span> {value}</div>
+                                                  ))}
+                                                </div>
+                                              )
+                                            }
+                                          }
+                                        } catch {}
+                                        return <span>{String(answer.answer)}</span>
+                                      })()}
+                                    </div>
                                   </div>
                                 )) || <p className="text-sm text-gray-500">No answers available</p>}
                                   {((teacher.selfComment as any)?.[activeTerm || 'START']) && (
