@@ -28,19 +28,14 @@ export async function POST(
       return NextResponse.json({ error: 'Term not found' }, { status: 404 })
     }
 
-    if (term.status !== 'START') {
-      return NextResponse.json({ error: 'Term is not active' }, { status: 400 })
+    if (term.status !== 'END') {
+      return NextResponse.json({ error: 'This is not an END term' }, { status: 400 })
     }
 
-    // End the term and update department term states
+    // Activate the END term and update department term states
     await prisma.$transaction(async (tx) => {
-      // Update term status
-      await tx.term.update({
-        where: { id: resolved.id },
-        data: { status: 'END' }
-      })
-
-      // Update department term states
+      // Term status remains 'END', we just activate it for departments
+      // Update department term states to use this END term
       for (const department of term.departments) {
         await tx.termState.upsert({
           where: { departmentId: department.id },

@@ -101,6 +101,11 @@ export default function HodDashboard() {
       }
       const data = await response.json()
       setTeachers(data.teachers || [])
+      
+      // Show message if no teachers and there's a message from API
+      if ((!data.teachers || data.teachers.length === 0) && data.message) {
+        setError(data.message)
+      }
     } catch (error) {
       console.error('Error fetching teachers:', error)
       setError('Failed to load teachers')
@@ -647,8 +652,20 @@ export default function HodDashboard() {
 
           {/* Tab 2: Evaluate Teachers */}
           <TabsContent value="evaluate" className="space-y-6">
-            <div className="grid grid-cols-1 gap-6">
-              {teachers.map((teacher, idx) => (
+            {teachers.length === 0 ? (
+              <Card>
+                <CardContent className="text-center py-12">
+                  <div className="text-gray-500">
+                    <div className="text-lg font-medium mb-2">No Teachers Available for Review</div>
+                    <div className="text-sm">
+                      {error ? error : 'No teachers have submitted their evaluations yet, or teacher evaluation access has not been enabled by the Admin.'}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 gap-6">
+                {teachers.map((teacher, idx) => (
                 <Card key={teacher.id} className="overflow-hidden">
                   <CardHeader>
                       <div className="flex items-center justify-between">
@@ -917,8 +934,9 @@ export default function HodDashboard() {
                     </CardContent>
                   )}
                 </Card>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           {/* Tab 3: Summary */}

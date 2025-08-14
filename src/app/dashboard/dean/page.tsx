@@ -54,6 +54,12 @@ interface Teacher {
   finalScore: TermScoped<number>
   promoted: TermScoped<boolean>
   canReview: boolean
+  receivedHodReviews?: Array<{
+    term: 'START' | 'END'
+    submitted: boolean
+    comments: string
+    scores: any
+  }>
 }
 
 export default function DeanDashboard() {
@@ -68,11 +74,16 @@ export default function DeanDashboard() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null)
   const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
-  type HodReviewView = { reviewer: { id: string; name: string; role: string }, comments: string, totalScore: number | null }
+  type HodReviewView = { reviewer: { id: string; name: string; role: string }, comments: string, totalScore: number | null, scores?: Record<string, number> | null }
   type HodView = { id: string; name: string; department?: { id: string; name: string } | null; reviews: HodReviewView[] }
   const [hods, setHods] = useState<HodView[]>([])
   const [hodTerm, setHodTerm] = useState<'START'|'END'>('START')
   const [hodLoading, setHodLoading] = useState(false)
+  const [openHodFinalId, setOpenHodFinalId] = useState<string | null>(null)
+  const [hodFinalComment, setHodFinalComment] = useState('')
+  const [hodFinalScore, setHodFinalScore] = useState<number | null>(null)
+  const [hodFinalPromoted, setHodFinalPromoted] = useState<boolean>(true)
+  const [openHodCardId, setOpenHodCardId] = useState<string | null>(null)
 
   // Fetch departments
   const fetchDepartments = async () => {
@@ -137,12 +148,12 @@ export default function DeanDashboard() {
     try {
       const res = await fetch(`/api/reviews/dean/hod?term=${hodTerm}`)
       if (!res.ok) throw new Error('Failed to load HOD performance')
-      const data: { hods?: Array<{ id: string; name: string; department?: { id: string; name: string } | null; hodPerformanceReviewsReceived?: Array<{ reviewer: { id: string; name: string; role: string }, comments: string, totalScore: number | null }> }> } = await res.json()
+      const data: { hods?: Array<{ id: string; name: string; department?: { id: string; name: string } | null; hodPerformanceReviewsReceived?: Array<{ reviewer: { id: string; name: string; role: string }, comments: string, totalScore: number | null, scores?: any, status?: 'PROMOTED' | 'ON_HOLD' | 'NEEDS_IMPROVEMENT' }> }> } = await res.json()
       const mapped: HodView[] = (data.hods || []).map((h) => ({
         id: h.id,
         name: h.name,
         department: h.department || null,
-        reviews: (h.hodPerformanceReviewsReceived || []).map((r) => ({ reviewer: r.reviewer, comments: r.comments, totalScore: r.totalScore ?? null }))
+        reviews: (h.hodPerformanceReviewsReceived || []).map((r) => ({ reviewer: r.reviewer, comments: r.comments, totalScore: r.totalScore ?? null, scores: r.scores || null, status: (r as any).status || null }))
       }))
       setHods(mapped)
     } catch (e) {
@@ -319,6 +330,8 @@ export default function DeanDashboard() {
           </Card>
         </div>
 
+        {/* Removed modal; inline finalize panel is used above */}
+
         {error && (
           <Alert className="mb-4 border-red-200 bg-red-50">
             <AlertDescription className="text-red-800">{error}</AlertDescription>
@@ -356,13 +369,27 @@ export default function DeanDashboard() {
               ) : (
                 <div className="space-y-3">
                   {hods.map((h: HodView) => (
-                    <div key={h.id} className="p-4 border rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-medium">{h.name}</div>
-                          <div className="text-sm text-gray-500">{h.department?.name || '—'}</div>
-                        </div>
-                      </div>
+                    <div key={h.id} className="border rounded-lg">
+                      <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value={`hod-${h.id}`} className="border-0">
+                          <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                            <div className="flex items-center justify-between w-full pr-4">
+                              <div className="text-left">
+                                <div className="font-medium">{h.name}</div>
+                                <div className="text-sm text-gray-500">{h.department?.name || '—'}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {(() => {
+                                  const deanReview = h.reviews.find(r => r.reviewer.role === 'DEAN')
+                                  if (!deanReview || !(deanReview as any).status) return null
+                                  const st = (deanReview as any).status as 'PROMOTED' | 'ON_HOLD' | 'NEEDS_IMPROVEMENT'
+                                  const cls = st === 'PROMOTED' ? 'bg-emerald-100 text-emerald-700' : st === 'ON_HOLD' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                  return <Badge className={cls}>{st}</Badge>
+                                })()}
+                              </div>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="px-4 pb-4">{/* Content wrapper */}
                       <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="bg-gray-50 p-3 rounded">
                           <div className="text-sm font-medium mb-1">Assistant Dean Review</div>
@@ -370,9 +397,22 @@ export default function DeanDashboard() {
                             <div className="text-sm text-gray-500">No review yet</div>
                           ) : (
                             h.reviews.filter((r: HodReviewView) => r.reviewer.role === 'ASST_DEAN').map((r: HodReviewView, idx: number) => (
-                              <div key={idx} className="text-sm text-gray-700">
+                              <div key={idx} className="text-sm text-gray-700 space-y-2">
                                 <div className="mb-1">{r.comments || '—'}</div>
                                 <div>Score: {r.totalScore ?? '—'}</div>
+                                {r.scores && Object.keys(r.scores).length > 0 && (
+                                  <div className="mt-2">
+                                    <div className="font-medium text-xs text-gray-600 mb-1">Rubric Breakdown</div>
+                                    <div className="space-y-1">
+                                      {Object.entries(r.scores as Record<string, number>).map(([k, v]) => (
+                                        <div key={k} className="flex items-center justify-between text-xs">
+                                          <span className="text-gray-600">{k}</span>
+                                          <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800">{v}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             ))
                           )}
@@ -390,7 +430,96 @@ export default function DeanDashboard() {
                             ))
                           )}
                         </div>
+                        <div className="flex items-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setOpenHodFinalId(prev => prev === h.id ? null : h.id)}
+                          >
+                            {openHodFinalId === h.id ? 'Close' : 'Evaluate HOD'}
+                          </Button>
+                        </div>
                       </div>
+                      {openHodFinalId === h.id && (
+                        <div className="mt-4 border-t pt-4 space-y-3">
+                          <div className="text-sm font-medium">Dean Final Review (HOD) — Term: {hodTerm}</div>
+                          <div>
+                            <label className="text-sm font-medium">Final Comments</label>
+                            <Textarea
+                              value={hodFinalComment}
+                              onChange={(e) => setHodFinalComment(e.target.value)}
+                              placeholder="Enter your final comments..."
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium">Final Score (1-100)</label>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={100}
+                              value={hodFinalScore ?? ''}
+                              onChange={(e) => setHodFinalScore(parseInt(e.target.value) || 0)}
+                              className="w-32"
+                            />
+                          </div>
+                                                    <div className="space-y-3">
+                            <div>
+                              <label className="text-sm font-medium mb-2 block">Decision</label>
+                              <button
+                                type="button"
+                                className={`px-4 py-2 text-sm rounded-md border transition-colors ${
+                                  hodFinalPromoted 
+                                    ? 'bg-green-100 text-green-800 border-green-300' 
+                                    : 'bg-amber-100 text-amber-800 border-amber-300'
+                                }`}
+                                onClick={() => setHodFinalPromoted(p => !p)}
+                              >
+                                {hodFinalPromoted ? '✓ PROMOTED' : '⚠ ON_HOLD'}
+                              </button>
+                            </div>
+                            <Button
+                              className={`w-full ${
+                                hodFinalPromoted 
+                                  ? 'bg-green-600 hover:bg-green-700' 
+                                  : 'bg-amber-600 hover:bg-amber-700'
+                              }`}
+                              onClick={async () => {
+                                if (!openHodFinalId) return
+                                try {
+                                  const res = await fetch('/api/reviews/dean/hod', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ 
+                                      hodId: openHodFinalId, 
+                                      term: hodTerm, 
+                                      comments: hodFinalComment.trim(), 
+                                      totalScore: hodFinalScore, 
+                                      promoted: hodFinalPromoted 
+                                    }),
+                                  })
+                                  if (!res.ok) {
+                                    const data = await res.json().catch(() => ({}))
+                                    throw new Error(data.error || 'Failed to submit HOD review')
+                                  }
+                                  toast.success('HOD final review saved')
+                                  setOpenHodFinalId(null)
+                                  setHodFinalComment('')
+                                  setHodFinalScore(null)
+                                  setHodFinalPromoted(true)
+                                  await fetchHodPerformance()
+                                } catch (e: any) {
+                                  toast.error(e.message || 'Failed to submit')
+                                }
+                              }}
+                            >
+                              {hodFinalPromoted ? 'Finalize - PROMOTE HOD' : 'Finalize - PUT ON HOLD'}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                          </AccordionContent>
+                        </AccordionItem>
+                      </Accordion>
                     </div>
                   ))}
                   {hods.length === 0 && (
@@ -511,11 +640,85 @@ export default function DeanDashboard() {
                             
                               <TabsContent value="hod-comments" className="space-y-4">
                               <div className="p-4 bg-gray-50 rounded-lg">
-                                <h4 className="font-medium mb-2">HOD Comments:</h4>
-                                  <p className="text-sm text-gray-700">{(teacher.hodComment as any)?.[activeTerm || 'START'] || 'No comments available'}</p>
-                                <div className="mt-2">
-                                  <span className="text-sm font-medium">HOD Score: </span>
+                                <h4 className="font-medium mb-2">HOD Evaluation:</h4>
+                                <div className="space-y-3">
+                                  <div>
+                                    <span className="text-sm font-medium">Comments: </span>
+                                    <p className="text-sm text-gray-700 mt-1">{(teacher.hodComment as any)?.[activeTerm || 'START'] || 'No comments available'}</p>
+                                  </div>
+                                  
+                                  <div>
+                                    <span className="text-sm font-medium">Total Score: </span>
                                     <span className="text-sm text-gray-700">{(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}/10</span>
+                                  </div>
+
+                                  {/* HOD Rubric Breakdown */}
+                                  {(() => {
+                                    const hodReview = teacher.receivedHodReviews?.find((r: any) => r.term === (activeTerm || 'START'))
+                                    if (!hodReview?.scores) return null
+                                    
+                                    try {
+                                      const scores = typeof hodReview.scores === 'string' ? JSON.parse(hodReview.scores) : hodReview.scores
+                                      
+                                      // Handle structured scores with rubric breakdown
+                                      if (scores.rubric && typeof scores.rubric === 'object') {
+                                        return (
+                                          <div>
+                                            <span className="text-sm font-medium">Rubric Breakdown:</span>
+                                            <div className="mt-2 space-y-2">
+                                              {Object.entries(scores.rubric).map(([category, items]: [string, any]) => (
+                                                <div key={category} className="border-l-2 border-blue-200 pl-3">
+                                                  <div className="text-xs font-medium text-gray-600 uppercase">{category}</div>
+                                                  <div className="space-y-1 mt-1">
+                                                    {typeof items === 'object' && items !== null ? (
+                                                      Object.entries(items).map(([item, score]: [string, any]) => (
+                                                        <div key={item} className="flex items-center justify-between text-xs">
+                                                          <span className="text-gray-600">{item}</span>
+                                                          <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">{score}</span>
+                                                        </div>
+                                                      ))
+                                                    ) : (
+                                                      <div className="flex items-center justify-between text-xs">
+                                                        <span className="text-gray-600">{category}</span>
+                                                        <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">{items}</span>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )
+                                      }
+                                      
+                                      // Handle simple key-value scores
+                                      if (typeof scores === 'object' && scores !== null && Object.keys(scores).length > 0) {
+                                        return (
+                                          <div>
+                                            <span className="text-sm font-medium">Score Breakdown:</span>
+                                            <div className="mt-2 space-y-1">
+                                              {Object.entries(scores).filter(([k]) => k !== 'totalScore' && k !== 'questionScores').map(([key, value]: [string, any]) => (
+                                                <div key={key} className="flex items-center justify-between text-xs">
+                                                  <span className="text-gray-600">{key}</span>
+                                                  <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">{value}</span>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )
+                                      }
+                                    } catch (e) {
+                                      // If parsing fails, show raw scores
+                                      return (
+                                        <div>
+                                          <span className="text-sm font-medium">Raw Score Data: </span>
+                                          <span className="text-xs text-gray-500">{JSON.stringify(hodReview.scores)}</span>
+                                        </div>
+                                      )
+                                    }
+                                    
+                                    return null
+                                  })()}
                                 </div>
                               </div>
                             </TabsContent>
@@ -557,34 +760,56 @@ export default function DeanDashboard() {
                                   />
                                 </div>
                                 
-                                <div className="flex items-center space-x-2">
-                                  <Switch
-                                    id={`promotion-${teacher.id}`}
-                                    checked={Boolean((teacher.promoted as any)?.[activeTerm || 'START'] || false)}
-                                    onCheckedChange={(checked) => updateTeacher(teacher.id, { promoted: { ...(teacher.promoted as any), [activeTerm || 'START']: checked } as any })}
-                                    disabled={!teacher.canReview}
-                                  />
-                                  <label htmlFor={`promotion-${teacher.id}`} className="text-sm font-medium">
-                                    {teacher.promoted ? 'Status: PROMOTED' : 'Status: ON_HOLD'}
-                                  </label>
+                                <div className="space-y-3">
+                                  <div>
+                                    <label className="text-sm font-medium mb-2 block">Decision</label>
+                                    <button
+                                      type="button"
+                                      className={`px-4 py-2 text-sm rounded-md border transition-colors ${
+                                        Boolean((teacher.promoted as any)?.[activeTerm || 'START'] || false)
+                                          ? 'bg-green-100 text-green-800 border-green-300' 
+                                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                                      }`}
+                                      onClick={() => {
+                                        const currentPromoted = Boolean((teacher.promoted as any)?.[activeTerm || 'START'] || false)
+                                        updateTeacher(teacher.id, { 
+                                          promoted: { 
+                                            ...(teacher.promoted as any), 
+                                            [activeTerm || 'START']: !currentPromoted 
+                                          } as any 
+                                        })
+                                      }}
+                                      disabled={!teacher.canReview}
+                                    >
+                                      {Boolean((teacher.promoted as any)?.[activeTerm || 'START'] || false) 
+                                        ? '✓ PROMOTED' 
+                                        : '⚠ ON_HOLD'}
+                                    </button>
+                                  </div>
+                                  
+                                  {teacher.canReview && (
+                                    <Button 
+                                      onClick={() => handleSubmit(teacher)}
+                                      disabled={teacher.status === 'FINALIZED' || submitting}
+                                      className={`w-full ${
+                                        Boolean((teacher.promoted as any)?.[activeTerm || 'START'] || false)
+                                          ? 'bg-green-600 hover:bg-green-700' 
+                                          : 'bg-amber-600 hover:bg-amber-700'
+                                      }`}
+                                    >
+                                      {submitting ? (
+                                        <>
+                                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                          Finalizing...
+                                        </>
+                                      ) : (
+                                        Boolean((teacher.promoted as any)?.[activeTerm || 'START'] || false)
+                                          ? 'Finalize - PROMOTE TEACHER'
+                                          : 'Finalize - PUT ON HOLD'
+                                      )}
+                                    </Button>
+                                  )}
                                 </div>
-                                
-                                {teacher.canReview && (
-                                  <Button 
-                                    onClick={() => handleSubmit(teacher)}
-                                    disabled={teacher.status === 'FINALIZED' || submitting}
-                                    className="w-full bg-blue-600 hover:bg-blue-700"
-                                  >
-                                    {submitting ? (
-                                      <>
-                                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                        Finalizing...
-                                      </>
-                                    ) : (
-                                      'Finalize Review'
-                                    )}
-                                  </Button>
-                                )}
                               </div>
                             </TabsContent>
                           </Tabs>

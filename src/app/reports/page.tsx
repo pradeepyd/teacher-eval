@@ -34,8 +34,13 @@ interface TeacherResult {
       maxQuestions: number
       hodScore: number
       asstScore: number
+      totalCombinedScore?: number
       finalScore: number
       maxPossibleScore: number
+      hodMaxScore?: number
+      asstMaxScore?: number
+      deanMaxScore?: number
+      promoted?: boolean
       status: string
       hodReviewer: string | null
       asstReviewer: string | null
@@ -498,8 +503,10 @@ export default function ReportsPage() {
                       <TableHead>Year</TableHead>
                       <TableHead>HOD Score</TableHead>
                       <TableHead>Asst Dean Score</TableHead>
-                      <TableHead>Final Score</TableHead>
+                      <TableHead>Total Score</TableHead>
+                      <TableHead>Dean Score</TableHead>
                       <TableHead>Performance</TableHead>
+                      <TableHead>Promoted</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -521,13 +528,19 @@ export default function ReportsPage() {
                               <Badge variant="outline">{teacher.role}</Badge>
                             </TableCell>
                             <TableCell>{teacher.year}</TableCell>
-                            <TableCell>{termData.hodScore}/{termData.maxPossibleScore}</TableCell>
-                            <TableCell>{termData.asstScore}/{termData.maxPossibleScore}</TableCell>
-                            <TableCell className="font-medium">
-                              {termData.finalScore}/{termData.maxPossibleScore}
+                            <TableCell>{termData.hodScore}/{termData.hodMaxScore}</TableCell>
+                            <TableCell>{termData.asstScore}/{termData.asstMaxScore}</TableCell>
+                            <TableCell className="font-medium text-blue-600">
+                              {termData.totalCombinedScore || (termData.hodScore + termData.asstScore)}/{termData.maxPossibleScore}
+                            </TableCell>
+                            <TableCell>{termData.finalScore}/{termData.deanMaxScore || 100}</TableCell>
+                            <TableCell>
+                              {getPerformancePercentage(termData.totalCombinedScore || (termData.hodScore + termData.asstScore), termData.maxPossibleScore)}%
                             </TableCell>
                             <TableCell>
-                              {getPerformancePercentage(termData.finalScore, termData.maxPossibleScore)}%
+                              <Badge className={termData.promoted ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                                {termData.promoted ? '✓ YES' : '✗ NO'}
+                              </Badge>
                             </TableCell>
                             <TableCell>
                               <Badge className={getStatusColor(termData.status)}>

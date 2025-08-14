@@ -17,35 +17,67 @@ export async function GET(_request: NextRequest) {
       where: { departmentId: session.user.departmentId }
     })
 
-    // Only count published questions
-    const isPublished = termState?.visibility === 'PUBLISHED'
-
-    // Resolve deadline from the currently active term that includes this department
-    let activeTermDeadline: string | null = null
-    if (termState?.activeTerm) {
-      const activeTermRow = await prisma.term.findFirst({
-        where: {
-          status: termState.activeTerm as any,
-          departments: { some: { id: session.user.departmentId } }
-        },
-        select: { endDate: true }
-      })
-      if (activeTermRow?.endDate) {
-        activeTermDeadline = activeTermRow.endDate.toISOString()
-      }
-    }
-
-    const startQuestionsCount = isPublished ? await prisma.question.count({
+    // Teachers can access evaluations when HOD has published questions
+    // Check if published questions exist for each term
+    const startQuestionsExist = await prisma.question.count({
       where: {
         departmentId: session.user.departmentId,
-        term: 'START'
+        term: 'START',
+        isActive: true,
+        isPublished: true
+      }
+    }) > 0
+    
+    const endQuestionsExist = await prisma.question.count({
+      where: {
+        departmentId: session.user.departmentId,
+        term: 'END',
+        isActive: true,
+        isPublished: true
+      }
+    }) > 0
+
+    // Resolve deadlines from terms
+    let startTermDeadline: string | null = null
+    let endTermDeadline: string | null = null
+    
+    const startTermRow = await prisma.term.findFirst({
+      where: {
+        status: 'START',
+        departments: { some: { id: session.user.departmentId } }
+      },
+      select: { endDate: true }
+    })
+    if (startTermRow?.endDate) {
+      startTermDeadline = startTermRow.endDate.toISOString()
+    }
+
+    const endTermRow = await prisma.term.findFirst({
+      where: {
+        status: 'END',
+        departments: { some: { id: session.user.departmentId } }
+      },
+      select: { endDate: true }
+    })
+    if (endTermRow?.endDate) {
+      endTermDeadline = endTermRow.endDate.toISOString()
+    }
+
+    const startQuestionsCount = startQuestionsExist ? await prisma.question.count({
+      where: {
+        departmentId: session.user.departmentId,
+        term: 'START',
+        isActive: true,
+        isPublished: true
       }
     }) : 0
 
-    const endQuestionsCount = isPublished ? await prisma.question.count({
+    const endQuestionsCount = endQuestionsExist ? await prisma.question.count({
       where: {
         departmentId: session.user.departmentId,
-        term: 'END'
+        term: 'END',
+        isActive: true,
+        isPublished: true
       }
     }) : 0
 
@@ -94,8 +126,6 @@ export async function GET(_request: NextRequest) {
     const endStatus = getTermStatus(endQuestionsCount, endAnswersCount, !!endSelfComment)
 
     const nowIso = new Date().toISOString()
-    const startDeadline = termState?.activeTerm === 'START' ? activeTermDeadline : null
-    const endDeadline = termState?.activeTerm === 'END' ? activeTermDeadline : null
 
     return NextResponse.json({
       activeTerm: termState?.activeTerm || null,
@@ -104,16 +134,18 @@ export async function GET(_request: NextRequest) {
         questionsCount: startQuestionsCount,
         answersCount: startAnswersCount,
         hasSelfComment: !!startSelfComment,
-        canSubmit: isPublished && termState?.activeTerm === 'START' && startStatus !== 'SUBMITTED' && (!!startDeadline && nowIso <= startDeadline),
-        deadline: startDeadline
+        canSubmit: startQuestionsExist && startStatus !== 'SUBMITTED' && (!!startTermDeadline && nowIso <= startTermDeadline),
+        deadline: startTermDeadline,
+        isPublished: startQuestionsExist
       },
       end: {
         status: endStatus,
         questionsCount: endQuestionsCount,
         answersCount: endAnswersCount,
         hasSelfComment: !!endSelfComment,
-        canSubmit: isPublished && termState?.activeTerm === 'END' && endStatus !== 'SUBMITTED' && (!!endDeadline && nowIso <= endDeadline),
-        deadline: endDeadline
+        canSubmit: endQuestionsExist && endStatus !== 'SUBMITTED' && (!!endTermDeadline && nowIso <= endTermDeadline),
+        deadline: endTermDeadline,
+        isPublished: endQuestionsExist
       }
     })
   } catch (error) {

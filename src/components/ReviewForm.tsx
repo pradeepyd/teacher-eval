@@ -216,14 +216,23 @@ export default function ReviewForm({
     <div className="max-w-6xl mx-auto">
       <div className="bg-white shadow rounded-lg">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-blue-50">
           <div className="flex justify-between items-start">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                {reviewerRole === 'HOD' ? 'HOD Review' : 'Assistant Dean Review'}
-              </h2>
-              <p className="text-sm text-gray-600 mt-1">
-                {teacherData.teacher.name} - {teacherData.teacher.department.name} - {term} Term
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {reviewerRole === 'HOD' ? 'HOD Review' : 'Assistant Dean Review'}
+                </h2>
+                <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${
+                  term === 'START' 
+                    ? 'bg-emerald-100 text-emerald-800' 
+                    : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {term === 'START' ? 'START Term' : 'END Term'}
+                </span>
+              </div>
+              <p className="text-sm text-gray-600">
+                {teacherData.teacher.name} - {teacherData.teacher.department.name}
               </p>
             </div>
             {isSubmitted && (

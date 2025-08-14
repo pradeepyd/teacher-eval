@@ -51,7 +51,25 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Transform data for frontend
+    // Transform data for frontend (support legacy numeric scores and new structured object)
+    const extractHod = (review: any) => {
+      let total = 0
+      let questionScores: Record<string, number> = {}
+      let rubric: Record<string, number> = {}
+      if (review && review.scores !== undefined && review.scores !== null) {
+        const s: any = review.scores
+        if (typeof s === 'number') {
+          total = s
+        } else if (typeof s === 'object') {
+          if (typeof s.totalScore === 'number') total = s.totalScore
+          else if (typeof (s as any).score === 'number') total = (s as any).score
+          questionScores = (s.questionScores as any) || {}
+          rubric = (s.rubric as any) || {}
+        }
+      }
+      return { total, questionScores, rubric }
+    }
+
     const teachersData = teachers.map(teacher => {
       const startAnswers = teacher.teacherAnswers.filter(a => a.term === 'START')
       const endAnswers = teacher.teacherAnswers.filter(a => a.term === 'END')
@@ -61,6 +79,9 @@ export async function GET(request: NextRequest) {
       const endHodReview = teacher.receivedHodReviews.find(r => r.term === 'END')
       const startAsstReview = teacher.receivedAsstReviews.find(r => r.term === 'START')
       const endAsstReview = teacher.receivedAsstReviews.find(r => r.term === 'END')
+
+      const startHod = extractHod(startHodReview)
+      const endHod = extractHod(endHodReview)
 
       return {
         id: teacher.id,
@@ -81,8 +102,16 @@ export async function GET(request: NextRequest) {
           END: endHodReview?.comments || ''
         },
         hodScore: {
-          START: (startHodReview?.scores as any)?.totalScore || 0,
-          END: (endHodReview?.scores as any)?.totalScore || 0
+          START: startHod.total,
+          END: endHod.total
+        },
+        hodQuestionScores: {
+          START: startHod.questionScores,
+          END: endHod.questionScores
+        },
+        hodRubric: {
+          START: startHod.rubric,
+          END: endHod.rubric
         },
         asstDeanComment: {
           START: startAsstReview?.comments || '',

@@ -47,6 +47,8 @@ interface Teacher {
   selfComment: TermScoped<string>
   hodComment: TermScoped<string>
   hodScore: TermScoped<number>
+  hodQuestionScores?: TermScoped<Record<string, number>>
+  hodRubric?: TermScoped<Record<string, number>>
   asstDeanComment: TermScoped<string> | Record<string, string>
   asstDeanScore: TermScoped<number> | Record<string, number>
   canReview: boolean
@@ -375,24 +377,31 @@ export default function AsstDeanDashboard() {
         {/* Toasts replace banners for success/error */}
 
         <div className="space-y-6">
-          {/* Department Selection */}
+          {/* Department & Term Selection */}
           <Card>
             <CardHeader>
               <CardTitle>Select Department</CardTitle>
             </CardHeader>
             <CardContent>
-              <Select value={selectedDept} onValueChange={setSelectedDept}>
-                <SelectTrigger className="w-full max-w-md">
-                  <SelectValue placeholder="Choose a department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-col md:flex-row gap-3 items-start md:items-center">
+                <Select value={selectedDept} onValueChange={setSelectedDept}>
+                  <SelectTrigger className="w-full md:w-80">
+                    <SelectValue placeholder="Choose a department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <div className="text-sm text-gray-700 flex items-center gap-2">
+                  <span className="font-medium">Active Term:</span>
+                  <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border">{activeTerm || 'Not Set'}</span>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -419,6 +428,9 @@ export default function AsstDeanDashboard() {
                       <div>
                         <CardTitle className="text-lg">{teacher.name}</CardTitle>
                         <p className="text-sm text-gray-600">{teacher.email}</p>
+                        <div className="text-xs text-gray-600 mt-1">
+                          HOD Total Score: {(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}
+                        </div>
                       </div>
                       <Badge
                         variant={teacher.status === 'REVIEWED' ? 'default' : 'secondary'}
@@ -449,39 +461,85 @@ export default function AsstDeanDashboard() {
                                 <h4 className="font-medium mb-2">HOD Comments:</h4>
                                   <p className="text-sm text-gray-700">{(teacher.hodComment as any)?.[activeTerm || 'START'] || 'No comments available'}</p>
                                 <div className="mt-2">
-                                  <span className="text-sm font-medium">HOD Score: </span>
-                                    <span className="text-sm text-gray-700">{(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}/10</span>
+                                  <span className="text-sm font-medium">Total HOD Score: </span>
+                                    <span className="text-sm text-gray-700">{(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}</span>
                                 </div>
+                                {teacher.hodRubric && (
+                                  <div className="mt-4 space-y-3">
+                                    <div className="text-sm font-semibold">Rubric Breakdown</div>
+                                    {(() => {
+                                      const rubric: Record<string, number> = (teacher.hodRubric as any)?.[activeTerm || 'START'] || {}
+                                      const grouped: Record<string, { label: string; value: number }[]> = {}
+                                      Object.entries(rubric).forEach(([key, val]) => {
+                                        const match = /^\[(.*?)\]\s*(.*)$/.exec(key)
+                                        const category = match ? match[1] : 'Other'
+                                        const label = match ? match[2] : key
+                                        if (!grouped[category]) grouped[category] = []
+                                        grouped[category].push({ label, value: Number(val) || 0 })
+                                      })
+                                      const categories = Object.keys(grouped)
+                                      if (categories.length === 0) {
+                                        return <div className="text-sm text-gray-500">No rubric data</div>
+                                      }
+                                      return (
+                                        <div className="space-y-4">
+                                          {categories.map((cat) => (
+                                            <div key={cat} className="border rounded p-3">
+                                              <div className="text-sm font-medium mb-2">{cat}</div>
+                                              <div className="space-y-1">
+                                                {grouped[cat].map((item) => (
+                                                  <div key={item.label} className="flex items-center justify-between text-sm">
+                                                    <span className="text-gray-700">{item.label}</span>
+                                                    <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800">{item.value}</span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                              <div className="mt-2 text-xs text-gray-600">Subtotal: {grouped[cat].reduce((a, b) => a + b.value, 0)}</div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )
+                                    })()}
+                                  </div>
+                                )}
                               </div>
                             </TabsContent>
                             
                               <TabsContent value="teacher-answers" className="space-y-4">
                               <div className="space-y-3">
-                                  {(teacher.teacherAnswers?.[activeTerm || 'START'] || []).map((answer, index) => (
-                                  <div key={index} className="p-3 bg-blue-50 rounded-lg">
-                                    <p className="text-sm font-medium">Question {index + 1}: {answer.question.question}</p>
-                                    <div className="text-sm text-gray-700 mt-1">
-                                      {(() => {
-                                        try {
-                                          const parsed = typeof answer.answer === 'string' ? JSON.parse(answer.answer) : null
-                                          if (parsed && parsed.details && typeof parsed.details === 'object') {
-                                            const entries = Object.entries(parsed.details as Record<string,string>).filter(([,v]) => (v||'').trim().length > 0)
-                                            if (entries.length > 0) {
-                                              return (
-                                                <div className="space-y-1">
-                                                  {entries.map(([label, value]) => (
-                                                    <div key={label}><span className="font-medium">{label}:</span> {value}</div>
-                                                  ))}
-                                                </div>
-                                              )
-                                            }
-                                          }
-                                        } catch {}
-                                        return <span>{String(answer.answer)}</span>
-                                      })()}
-                                    </div>
-                                  </div>
-                                )) || <p className="text-sm text-gray-500">No answers available</p>}
+                                  {(teacher.teacherAnswers?.[activeTerm || 'START'] || []).map((answer, index) => {
+                                    const qScore = (teacher.hodQuestionScores as any)?.[activeTerm || 'START']?.[answer.question.id] ?? null
+                                    return (
+                                      <div key={index} className="p-3 bg-blue-50 rounded-lg">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <p className="text-sm font-medium">Question {index + 1}: {answer.question.question}</p>
+                                          {qScore !== null && (
+                                            <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">HOD Score: {qScore}</span>
+                                          )}
+                                        </div>
+                                        <div className="text-sm text-gray-700 mt-1">
+                                          {(() => {
+                                            try {
+                                              const parsed = typeof answer.answer === 'string' ? JSON.parse(answer.answer) : null
+                                              if (parsed && parsed.details && typeof parsed.details === 'object') {
+                                                const entries = Object.entries(parsed.details as Record<string,string>).filter(([,v]) => (v||'').trim().length > 0)
+                                                if (entries.length > 0) {
+                                                  return (
+                                                    <div className="space-y-1">
+                                                      {entries.map(([label, value]) => (
+                                                        <div key={label}><span className="font-medium">{label}:</span> {value}</div>
+                                                      ))}
+                                                    </div>
+                                                  )
+                                                }
+                                              }
+                                            } catch {}
+                                            return <span>{String(answer.answer)}</span>
+                                          })()}
+                                        </div>
+                                      </div>
+                                    )
+                                  }) || <p className="text-sm text-gray-500">No answers available</p>}
                                   {((teacher.selfComment as any)?.[activeTerm || 'START']) && (
                                   <div className="p-3 bg-green-50 rounded-lg">
                                     <p className="text-sm font-medium">Teacher's Self Comment:</p>
@@ -519,7 +577,7 @@ export default function AsstDeanDashboard() {
                                 
                                 {teacher.canReview && (
                                   <Button 
-                                    onClick={() => setShowConfirmDialog(true)}
+                                    onClick={() => handleSubmit(teacher)}
                                     disabled={teacher.status === 'REVIEWED' || submitting || !teacher.canReview}
                                     className="w-full bg-blue-600 hover:bg-blue-700"
                                   >

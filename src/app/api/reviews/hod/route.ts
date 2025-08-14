@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { teacherId, comment, score, term, scores } = body
+    const { teacherId, comment, score, term, scores, questionScores } = body
     // Block if Dean has finalized for this teacher/term
     const finalized = await prisma.finalReview.findUnique({
       where: { teacherId_term: { teacherId, term: term as 'START' | 'END' } }
@@ -107,6 +107,20 @@ export async function POST(request: NextRequest) {
 
     if (!teacherId || !comment || !term || !['START', 'END'].includes(term)) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    // Check if teacher evaluation is published for this term before allowing HOD reviews
+    const termState = await prisma.termState.findUnique({ 
+      where: { departmentId: session.user.departmentId } 
+    })
+    const isTermPublished = term === 'START' 
+      ? ((termState as any)?.startTermVisibility === 'PUBLISHED' || termState?.visibility === 'PUBLISHED')
+      : ((termState as any)?.endTermVisibility === 'PUBLISHED' || termState?.visibility === 'PUBLISHED')
+    
+    if (!isTermPublished) {
+      return NextResponse.json({ 
+        error: `${term} term teacher evaluation review access not enabled. Contact admin to publish teacher evaluation access for HOD review.` 
+      }, { status: 403 })
     }
 
     // Verify teacher belongs to HOD's department
@@ -144,8 +158,14 @@ export async function POST(request: NextRequest) {
     const termRecord = await prisma.term.findFirst({ where: { year: new Date().getFullYear() }, select: { id: true } })
 
     // Create or update HOD review
-    // Prefer structured scores from payload; fall back to simple score
-    const structuredScores = scores && typeof scores === 'object' ? scores : { totalScore: Number(score) || 0 }
+    // Normalize HOD scoring structure so downstream dashboards can read totals and breakdowns
+    const rubricScores = scores && typeof scores === 'object' ? scores : {}
+    const rubricTotal = Object.values(rubricScores).reduce((acc: number, v: any) => acc + (Number(v) || 0), 0)
+    const structuredScores: any = {
+      rubric: rubricScores,
+      questionScores: (questionScores && typeof questionScores === 'object') ? questionScores : {},
+      totalScore: rubricTotal > 0 ? rubricTotal : (Number(score) || 0)
+    }
 
     const review = await prisma.hodReview.upsert({
       where: {

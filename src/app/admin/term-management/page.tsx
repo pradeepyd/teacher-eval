@@ -52,6 +52,7 @@ export default function TermManagementPage() {
   const [deletingTerm, setDeletingTerm] = useState<Term | null>(null)
   const [dispatchDept, setDispatchDept] = useState<string>('')
   const [dispatchTerm, setDispatchTerm] = useState<'START'|'END'>('START')
+  const [departmentStates, setDepartmentStates] = useState<Record<string, any>>({})
 
   // Form state
   const [formData, setFormData] = useState({
@@ -59,6 +60,7 @@ export default function TermManagementPage() {
     year: new Date().getFullYear().toString(),
     startDate: '',
     endDate: '',
+    termType: 'START' as 'START' | 'END',
     selectedDepartments: [] as string[]
   })
 
@@ -91,9 +93,35 @@ export default function TermManagementPage() {
       }
       const data = await response.json()
       setDepartments(data)
+      
+      // Fetch department states
+      await fetchDepartmentStates(data)
     } catch (error) {
       console.error('Error fetching departments:', error)
       setError('Failed to load departments')
+    }
+  }
+
+  // Fetch department publishing states
+  const fetchDepartmentStates = async (depts: Department[] = departments) => {
+    try {
+      const states: Record<string, any> = {}
+      await Promise.all(
+        depts.map(async (dept) => {
+          try {
+            const response = await fetch(`/api/departments/${dept.id}/term-state`)
+            if (response.ok) {
+              const data = await response.json()
+              states[dept.id] = data
+            }
+          } catch (e) {
+            // Ignore individual failures
+          }
+        })
+      )
+      setDepartmentStates(states)
+    } catch (error) {
+      console.error('Error fetching department states:', error)
     }
   }
 
@@ -104,6 +132,7 @@ export default function TermManagementPage() {
       year: new Date().getFullYear().toString(),
       startDate: '',
       endDate: '',
+      termType: 'START' as 'START' | 'END',
       selectedDepartments: []
     })
     setEditingTerm(null)
@@ -129,6 +158,7 @@ export default function TermManagementPage() {
           year: parseInt(formData.year),
           startDate: formData.startDate,
           endDate: formData.endDate,
+          termType: formData.termType,
           departmentIds: formData.selectedDepartments
         })
       })
@@ -238,8 +268,9 @@ export default function TermManagementPage() {
         throw new Error(errorData.error || 'Failed to start term')
       }
 
-      setSuccess('Term started successfully!')
+      setSuccess('START term activated successfully!')
       await fetchTerms()
+      await fetchDepartmentStates()
     } catch (error) {
       console.error('Error starting term:', error)
       setError(error instanceof Error ? error.message : 'Failed to start term')
@@ -264,8 +295,9 @@ export default function TermManagementPage() {
         throw new Error(errorData.error || 'Failed to end term')
       }
 
-      setSuccess('Term ended successfully!')
+      setSuccess('END term activated successfully!')
       await fetchTerms()
+      await fetchDepartmentStates()
     } catch (error) {
       console.error('Error ending term:', error)
       setError(error instanceof Error ? error.message : 'Failed to end term')
@@ -282,6 +314,7 @@ export default function TermManagementPage() {
       year: term.year.toString(),
       startDate: term.startDate.split('T')[0],
       endDate: term.endDate.split('T')[0],
+      termType: term.status as 'START' | 'END',
       selectedDepartments: term.departments.map(d => d.id)
     })
     setShowAddModal(true)
@@ -291,9 +324,9 @@ export default function TermManagementPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'START':
-        return <Badge className="bg-green-100 text-green-800">Active</Badge>
+        return <Badge className="bg-green-100 text-green-800">START Term</Badge>
       case 'END':
-        return <Badge className="bg-blue-100 text-blue-800">Completed</Badge>
+        return <Badge className="bg-blue-100 text-blue-800">END Term</Badge>
       default:
         return <Badge variant="secondary">Inactive</Badge>
     }
@@ -376,34 +409,34 @@ export default function TermManagementPage() {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Term</label>
+                  <label className="text-sm font-medium">Term <span className="text-blue-600 font-medium">({dispatchTerm})</span></label>
                   <Select value={dispatchTerm} onValueChange={(v: any) => setDispatchTerm(v)}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select term" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="START">START</SelectItem>
-                      <SelectItem value="END">END</SelectItem>
+                      <SelectItem value="START">START - Beginning of Year</SelectItem>
+                      <SelectItem value="END">END - End of Year</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex flex-col md:flex-row md:items-end gap-2">
+                <div className="flex flex-col md:flex-row md:flex-wrap md:items-end md:justify-end gap-2">
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
                     type="button"
-                    className="w-full md:w-auto bg-blue-600 hover:bg-blue-700"
+                    className="w-full md:w-full bg-blue-600 hover:bg-blue-700"
                     variant="default"
                     disabled={!dispatchDept || submitting}
                       >
-                        Publish Teacher Evaluation
+                        Enable HOD Review Access ({dispatchTerm})
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Publish Teacher Evaluation?</AlertDialogTitle>
+                        <AlertDialogTitle>Enable HOD Review Access for {dispatchTerm} Term?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          This will make the teacher evaluation visible for the selected department and term. Proceed?
+                          This will enable HODs to <strong>review and evaluate teachers</strong> for the {dispatchTerm} term in the selected department. Note: Teachers can already access evaluations once HOD creates questions. Proceed?
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -418,14 +451,19 @@ export default function TermManagementPage() {
                               const res = await fetch(`/api/departments/${dispatchDept}/term-state`, {
                                 method: 'PUT',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ activeTerm: dispatchTerm, visibility: 'PUBLISHED' })
+                                body: JSON.stringify({ 
+                                  activeTerm: dispatchTerm, 
+                                  term: dispatchTerm, 
+                                  termVisibility: 'PUBLISHED' 
+                                })
                               })
                               if (!res.ok) {
                                 const data = await res.json().catch(() => ({}))
                                 throw new Error(data.error || 'Failed to publish teacher evaluation')
                               }
-                              setSuccess('Teacher evaluation form published for selected department and term')
-                              toast.success('Teacher evaluation form published')
+                              setSuccess(`${dispatchTerm} term teacher evaluation published for selected department`)
+                              toast.success(`${dispatchTerm} term teacher evaluation published`)
+                              await fetchDepartmentStates()
                             } catch (e) {
                               const msg = e instanceof Error ? e.message : 'Failed to publish teacher evaluation'
                               setError(msg)
@@ -445,7 +483,7 @@ export default function TermManagementPage() {
                     <AlertDialogTrigger asChild>
                       <Button
                         type="button"
-                        className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white"
+                        className="w-full md:w-full bg-blue-600 hover:bg-blue-700 text-white"
                         variant="default"
                         disabled={!dispatchDept || submitting}
                       >
@@ -454,9 +492,9 @@ export default function TermManagementPage() {
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Publish HOD Evaluation?</AlertDialogTitle>
+                        <AlertDialogTitle>Publish HOD Evaluation Access?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          This will enable Assistant Dean/Dean to evaluate HODs for the selected department and term.
+                          This will enable <strong>Assistant Dean and Dean to evaluate HODs</strong> for the selected department and term. Note: HODs already have access to review teachers once teacher evaluations are published above.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -477,8 +515,9 @@ export default function TermManagementPage() {
                                 const data = await res.json().catch(() => ({}))
                                 throw new Error(data.error || 'Failed to publish HOD evaluation')
                               }
-                              setSuccess('HOD evaluation published for this department and term')
-                              toast.success('HOD evaluation published')
+                              setSuccess(`${dispatchTerm} term HOD evaluation published for selected department`)
+                              toast.success(`${dispatchTerm} term HOD evaluation published`)
+                              await fetchDepartmentStates()
                             } catch (e) {
                               const msg = e instanceof Error ? e.message : 'Failed to publish HOD evaluation'
                               setError(msg)
@@ -496,9 +535,88 @@ export default function TermManagementPage() {
                   </AlertDialog>
                 </div>
               </div>
+              <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                <div className="text-sm font-medium text-blue-900 mb-1">Publishing Preview:</div>
+                <div className="text-sm text-blue-700">
+                  {dispatchDept && dispatchTerm ? (
+                    <>Department: <span className="font-medium">{departments.find(d => d.id === dispatchDept)?.name}</span> | Term: <span className="font-medium">{dispatchTerm}</span></>
+                  ) : (
+                    "Select department and term to see preview"
+                  )}
+                </div>
+              </div>
               <p className="text-xs text-muted-foreground">
-                Publishing makes Teacher forms visible to teachers. Publishing HOD evaluation enables Assistant Dean/Dean to evaluate HODs for the selected term.
+                <strong>HOD Review Access:</strong> Enables HODs to review and score teachers (teachers already have access once HOD creates questions). <strong>HOD Evaluation:</strong> Enables Assistant Dean/Dean to evaluate HODs.
               </p>
+            </CardContent>
+          </Card>
+
+          {/* Department Publishing Status */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Department Publishing Status</CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fetchDepartmentStates()}
+                  disabled={loading}
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {departments.map((dept) => {
+                  const state = departmentStates[dept.id]
+                  const startPublished = state?.startTermVisibility === 'PUBLISHED' || state?.visibility === 'PUBLISHED'
+                  const endPublished = state?.endTermVisibility === 'PUBLISHED' || state?.visibility === 'PUBLISHED'
+                  
+                  return (
+                    <div key={dept.id} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-medium">{dept.name}</h3>
+                        <Badge variant="outline">
+                          Active: {state?.activeTerm || 'Not Set'}
+                        </Badge>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span>START Term:</span>
+                          <Badge 
+                            className={startPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}
+                          >
+                            {startPublished ? 'Published' : 'Draft'}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span>END Term:</span>
+                          <Badge 
+                            className={endPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}
+                          >
+                            {endPublished ? 'Published' : 'Draft'}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span>HOD Evaluation:</span>
+                          <Badge 
+                            className={state?.hodVisibility === 'PUBLISHED' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}
+                          >
+                            {state?.hodVisibility === 'PUBLISHED' ? 'Published' : 'Draft'}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              {departments.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  No departments found. Create departments first.
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -552,6 +670,22 @@ export default function TermManagementPage() {
                             </SelectItem>
                           )
                         })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <label htmlFor="termType" className="text-sm font-medium">Term Type</label>
+                    <Select 
+                      value={formData.termType} 
+                      onValueChange={(value: 'START' | 'END') => setFormData({ ...formData, termType: value })}
+                      disabled={submitting}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select term type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="START">START - Beginning of Year</SelectItem>
+                        <SelectItem value="END">END - End of Year</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -664,27 +798,39 @@ export default function TermManagementPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            {term.status === 'INACTIVE' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => startTerm(term.id)}
-                                disabled={submitting}
-                              >
-                                {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Play className="h-4 w-4 mr-1" />}
-                                Start
-                              </Button>
-                            )}
                             {term.status === 'START' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => endTerm(term.id)}
-                                disabled={submitting}
-                              >
-                                {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Square className="h-4 w-4 mr-1" />}
-                                End
-                              </Button>
+                              <>
+                                {term.departments.some(dept => dept.termState?.activeTerm === 'START') ? (
+                                  <Badge className="bg-green-100 text-green-800">Active</Badge>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => startTerm(term.id)}
+                                    disabled={submitting}
+                                  >
+                                    {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Play className="h-4 w-4 mr-1" />}
+                                    Activate
+                                  </Button>
+                                )}
+                              </>
+                            )}
+                            {term.status === 'END' && (
+                              <>
+                                {term.departments.some(dept => dept.termState?.activeTerm === 'END') ? (
+                                  <Badge className="bg-blue-100 text-blue-800">Active</Badge>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => endTerm(term.id)}
+                                    disabled={submitting}
+                                  >
+                                    {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Play className="h-4 w-4 mr-1" />}
+                                    Activate
+                                  </Button>
+                                )}
+                              </>
                             )}
                             <Button
                               variant="outline"

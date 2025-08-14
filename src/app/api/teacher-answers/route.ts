@@ -86,14 +86,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Final review already submitted by Dean for this term' }, { status: 400 })
     }
 
-    // Check if teacher's department has this term as active
-    const termState = await prisma.termState.findUnique({
-      where: { departmentId: session.user.departmentId }
+    // Teachers can only submit for published questions
+    // Check if there are published questions available for this term
+    const questionsExist = await prisma.question.count({
+      where: {
+        departmentId: session.user.departmentId,
+        term: term as 'START' | 'END',
+        isActive: true,
+        isPublished: true
+      }
     })
-
-    if (!termState || termState.activeTerm !== term) {
+    
+    if (questionsExist === 0) {
       return NextResponse.json({ 
-        error: `Cannot submit evaluation for ${term} term. Current active term is ${termState?.activeTerm || 'not set'}` 
+        error: `Cannot submit evaluation for ${term} term. No published questions available for this term.` 
       }, { status: 400 })
     }
 
@@ -150,11 +156,22 @@ export async function POST(request: NextRequest) {
 
     // Use transaction to ensure data consistency
     const result = await prisma.$transaction(async (tx) => {
-      // Save all answers
+      // Save all answers (upsert to handle existing answers)
       const savedAnswers = await Promise.all(
         answers.map((answer: { questionId: string; answer: string }) =>
-          tx.teacherAnswer.create({
-            data: {
+          tx.teacherAnswer.upsert({
+            where: { 
+              teacherId_questionId_term: { 
+                teacherId: session.user.id, 
+                questionId: answer.questionId, 
+                term: term as 'START' | 'END' 
+              } 
+            },
+            update: {
+              answer: answer.answer,
+              termId: resolvedTermId,
+            },
+            create: {
               teacherId: session.user.id,
               questionId: answer.questionId,
               term: term as 'START' | 'END',

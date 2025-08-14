@@ -111,7 +111,8 @@ export async function GET(request: NextRequest) {
           START: startFinalReview?.status === 'PROMOTED',
           END: endFinalReview?.status === 'PROMOTED'
         },
-        canReview: !((startFinalReview?.submitted || false) || (endFinalReview?.submitted || false))
+        canReview: !((startFinalReview?.submitted || false) || (endFinalReview?.submitted || false)),
+        receivedHodReviews: teacher.receivedHodReviews
       }
     })
 

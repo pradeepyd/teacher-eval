@@ -19,18 +19,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
     }
 
-    // Ensure department term is published
-    const termState = await prisma.termState.findUnique({ where: { departmentId: session.user.departmentId } })
-    if (!termState || termState.activeTerm !== term || termState.visibility !== 'PUBLISHED') {
+    // Teachers can only access questions that HOD has published
+    // Check if there are published questions available for this term
+    const questionsExist = await prisma.question.count({
+      where: {
+        departmentId: session.user.departmentId,
+        term: term as 'START' | 'END',
+        isActive: true,
+        isPublished: true
+      }
+    })
+    
+    if (questionsExist === 0) {
       return NextResponse.json({ questions: [], existingSelfComment: '', isSubmitted: false, canEdit: false })
     }
 
-    // Get all questions for this department and term (published only)
+    // Get all published questions for this department and term
     const questions = await prisma.question.findMany({
       where: {
         departmentId: session.user.departmentId,
         term: term as 'START' | 'END',
-        isActive: true
+        isActive: true,
+        isPublished: true
       },
       orderBy: [
         { order: 'asc' },

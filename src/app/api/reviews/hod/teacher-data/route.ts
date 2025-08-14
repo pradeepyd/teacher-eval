@@ -23,8 +23,22 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ teachers: [] })
       }
 
-      // Determine active term for department (optional)
+      // HOD can access teacher list if ANY term evaluation is published
+      // Individual teacher access is still controlled by specific term publishing
       const termState = await prisma.termState.findUnique({ where: { departmentId } })
+      const hasAnyReviewAccess = 
+        (termState as any)?.startTermVisibility === 'PUBLISHED' || 
+        (termState as any)?.endTermVisibility === 'PUBLISHED' ||
+        termState?.visibility === 'PUBLISHED'
+      
+      if (!hasAnyReviewAccess) {
+        return NextResponse.json({ 
+          teachers: [], 
+          message: 'Teacher evaluation review access not enabled. Contact admin to publish teacher evaluation access for HOD review.' 
+        })
+      }
+
+      // Determine active term for department (optional)
       const activeTerm = termState?.activeTerm || 'START'
 
       const teachers = await prisma.user.findMany({
@@ -73,6 +87,20 @@ export async function GET(request: NextRequest) {
     // For single-teacher detail fetch, require valid term
     if (!term || !['START', 'END'].includes(term)) {
       return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
+    }
+
+    // Check if teacher evaluation is published for the specific term
+    const termState = await prisma.termState.findUnique({ 
+      where: { departmentId: session.user.departmentId } 
+    })
+    const isTermPublished = term === 'START' 
+      ? ((termState as any)?.startTermVisibility === 'PUBLISHED' || termState?.visibility === 'PUBLISHED')
+      : ((termState as any)?.endTermVisibility === 'PUBLISHED' || termState?.visibility === 'PUBLISHED')
+    
+    if (!isTermPublished) {
+      return NextResponse.json({ 
+        error: `${term} term teacher evaluation review access not enabled. Contact admin to publish teacher evaluation access for HOD review.` 
+      }, { status: 403 })
     }
 
     // Verify teacher belongs to HOD's department

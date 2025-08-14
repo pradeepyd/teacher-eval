@@ -89,6 +89,35 @@ export async function GET(request: NextRequest) {
       const startFinalReview = teacher.receivedFinalReviews.find(r => r.term === 'START')
       const endFinalReview = teacher.receivedFinalReviews.find(r => r.term === 'END')
 
+      // Helper function to calculate max score from rubric
+      const calculateMaxScore = (review: any) => {
+        if (!review?.scores) return 50 // Default fallback reduced
+        try {
+          const scores = typeof review.scores === 'string' ? JSON.parse(review.scores) : review.scores
+          if (scores.rubric && typeof scores.rubric === 'object') {
+            let total = 0
+            Object.values(scores.rubric).forEach((category: any) => {
+              if (typeof category === 'object' && category !== null) {
+                Object.values(category).forEach((item: any) => {
+                  if (typeof item === 'number') total += 5 // Max 5 per rubric item
+                })
+              } else if (typeof category === 'number') {
+                total += 5 // Max 5 per category
+              }
+            })
+            return total || 50
+          }
+        } catch (e) {
+          // If parsing fails, return default
+        }
+        return 50 // Default fallback reduced
+      }
+
+      const startHodMaxScore = calculateMaxScore(startHodReview)
+      const startAsstMaxScore = calculateMaxScore(startAsstReview)
+      const endHodMaxScore = calculateMaxScore(endHodReview)
+      const endAsstMaxScore = calculateMaxScore(endAsstReview)
+
       return {
         id: teacher.id,
         name: teacher.name,
@@ -104,9 +133,14 @@ export async function GET(request: NextRequest) {
             maxQuestions: startAnswers.length,
             hodScore: (startHodReview?.scores as any)?.totalScore || 0,
             asstScore: (startAsstReview?.scores as any)?.totalScore || 0,
+            totalCombinedScore: ((startHodReview?.scores as any)?.totalScore || 0) + ((startAsstReview?.scores as any)?.totalScore || 0),
             finalScore: startFinalReview?.finalScore || 0,
-            maxPossibleScore: startAnswers.length * 10,
-            status: startFinalReview?.status || 'PENDING',
+            maxPossibleScore: startHodMaxScore + startAsstMaxScore,
+            hodMaxScore: startHodMaxScore,
+            asstMaxScore: startAsstMaxScore,
+            deanMaxScore: 100,
+            status: startFinalReview?.submitted ? startFinalReview.status : 'PENDING',
+            promoted: startFinalReview?.submitted && startFinalReview?.status === 'PROMOTED',
             hodReviewer: startHodReview?.reviewerId || null,
             asstReviewer: startAsstReview?.reviewerId || null,
             deanReviewer: startFinalReview?.reviewerId || null,
@@ -121,9 +155,14 @@ export async function GET(request: NextRequest) {
             maxQuestions: endAnswers.length,
             hodScore: (endHodReview?.scores as any)?.totalScore || 0,
             asstScore: (endAsstReview?.scores as any)?.totalScore || 0,
+            totalCombinedScore: ((endHodReview?.scores as any)?.totalScore || 0) + ((endAsstReview?.scores as any)?.totalScore || 0),
             finalScore: endFinalReview?.finalScore || 0,
-            maxPossibleScore: endAnswers.length * 10,
-            status: endFinalReview?.status || 'PENDING',
+            maxPossibleScore: endHodMaxScore + endAsstMaxScore,
+            hodMaxScore: endHodMaxScore,
+            asstMaxScore: endAsstMaxScore,
+            deanMaxScore: 100,
+            status: endFinalReview?.submitted ? endFinalReview.status : 'PENDING',
+            promoted: endFinalReview?.submitted && endFinalReview?.status === 'PROMOTED',
             hodReviewer: endHodReview?.reviewerId || null,
             asstReviewer: endAsstReview?.reviewerId || null,
             deanReviewer: endFinalReview?.reviewerId || null,

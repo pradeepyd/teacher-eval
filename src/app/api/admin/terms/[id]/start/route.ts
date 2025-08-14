@@ -28,19 +28,14 @@ export async function POST(
       return NextResponse.json({ error: 'Term not found' }, { status: 404 })
     }
 
-    if (term.status !== 'INACTIVE') {
-      return NextResponse.json({ error: 'Term is already active or completed' }, { status: 400 })
+    if (term.status !== 'START') {
+      return NextResponse.json({ error: 'This is not a START term' }, { status: 400 })
     }
 
-    // Start the term and update department term states
+    // Activate the START term and update department term states
     await prisma.$transaction(async (tx) => {
-      // Update term status
-      await tx.term.update({
-        where: { id: resolved.id },
-        data: { status: 'START' }
-      })
-
-      // Update department term states
+      // Term status remains 'START', we just activate it for departments
+      // Update department term states to use this START term
       for (const department of term.departments) {
         await tx.termState.upsert({
           where: { departmentId: department.id },

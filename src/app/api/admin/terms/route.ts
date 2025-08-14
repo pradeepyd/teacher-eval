@@ -40,10 +40,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { name, year, startDate, endDate, departmentIds } = await request.json()
+    const { name, year, startDate, endDate, termType, departmentIds } = await request.json()
 
-    if (!name || !year || !startDate || !endDate) {
+    if (!name || !year || !startDate || !endDate || !termType) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    if (!['START', 'END'].includes(termType)) {
+      return NextResponse.json({ error: 'Invalid term type. Must be START or END' }, { status: 400 })
     }
 
     // Coerce and validate dates
@@ -64,13 +68,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Create term with department associations
+    // Terms are created directly with their intended status (START or END)
     const term = await prisma.term.create({
       data: {
         name,
         year: yearNumber,
         startDate: start,
         endDate: end,
-        status: 'INACTIVE',
+        status: termType as 'START' | 'END', // Create directly as START or END
         departments: {
           connect: Array.isArray(departmentIds) ? departmentIds.map((id: string) => ({ id })) : []
         }

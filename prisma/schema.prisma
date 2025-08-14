@@ -118,8 +118,11 @@ model TermState {
   id           String   @id @default(cuid())
   departmentId String   @unique
   activeTerm   TermType
-  visibility   String   @default("DRAFT") // DRAFT or PUBLISHED for active term visibility
+  visibility   String   @default("DRAFT") // DRAFT or PUBLISHED for active term visibility (deprecated)
   hodVisibility String  @default("DRAFT") // DRAFT or PUBLISHED for HOD evaluation publish
+  // New fields for term-specific publishing
+  startTermVisibility String @default("DRAFT") // DRAFT or PUBLISHED for START term
+  endTermVisibility   String @default("DRAFT") // DRAFT or PUBLISHED for END term
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -138,6 +141,7 @@ model Question {
   options      String[]     // For MCQ and Checkbox only
   optionScores Int[]        @default([]) // Optional weights aligned with options
   isActive     Boolean      @default(true)
+  isPublished  Boolean      @default(false) // HOD must publish questions for teachers to see them
   order        Int          @default(0)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -260,6 +264,7 @@ model HodPerformanceReview {
   scores     Json
   totalScore Int?
   submitted  Boolean  @default(false)
+  status     ReviewStatus?
   termId     String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
