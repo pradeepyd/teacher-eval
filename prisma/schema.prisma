@@ -1,16 +1,230 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  // Optional: For serverless deployments with Supabase Transaction Pooler
-  // directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
+
+model User {
+  id                            String                 @id @default(cuid())
+  email                         String                 @unique
+  password                      String
+  name                          String
+  role                          Role
+  departmentId                  String?
+  createdAt                     DateTime               @default(now())
+  updatedAt                     DateTime               @updatedAt
+  emailVerified                 DateTime?
+  failedLogins                  Int                    @default(0)
+  lastLogin                     DateTime?
+  lockedUntil                   DateTime?
+  asstReviews                   AsstReview[]           @relation("AsstReviewer")
+  receivedAsstReviews           AsstReview[]           @relation("TeacherReviewed")
+  finalReviews                  FinalReview[]          @relation("FinalReviewer")
+  receivedFinalReviews          FinalReview[]          @relation("TeacherReviewed")
+  hodPerformanceReviewsReceived HodPerformanceReview[] @relation("HODPerformanceSubject")
+  hodPerformanceReviewsGiven    HodPerformanceReview[] @relation("HODPerformanceReviewer")
+  hodReviews                    HodReview[]            @relation("HODReviewer")
+  receivedHodReviews            HodReview[]            @relation("TeacherReviewed")
+  selfComments                  SelfComment[]
+  teacherAnswers                TeacherAnswer[]
+
+  department                    Department?            @relation(fields: [departmentId], references: [id])
+
+  @@map("users")
+}
+
+model Department {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  questions  Question[]
+  termStates TermState[]
+  users      User[]
+  terms      Term[]      @relation("DepartmentTerms")
+
+  @@map("departments")
+}
+
+model Term {
+  id                    String                 @id @default(cuid())
+  name                  String
+  year                  Int
+  status                TermStatus             @default(INACTIVE)
+  startDate             DateTime
+  endDate               DateTime
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  asstReviews           AsstReview[]
+  finalReviews          FinalReview[]
+  hodPerformanceReviews HodPerformanceReview[]
+  hodReviews            HodReview[]
+  selfComments          SelfComment[]
+  teacherAnswers        TeacherAnswer[]
+  departments           Department[]           @relation("DepartmentTerms")
+
+  @@map("terms")
+}
+
+model TermState {
+  id                  String     @id @default(cuid())
+  departmentId        String
+  activeTerm          TermType
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  endTermVisibility   String     @default("DRAFT")
+  hodVisibility       String     @default("DRAFT")
+  startTermVisibility String     @default("DRAFT")
+  visibility          String     @default("DRAFT")
+  year                Int
+  department          Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, year])
+  @@map("term_state")
+}
+
+model Question {
+  id             String          @id @default(cuid())
+  departmentId   String
+  term           TermType
+  type           QuestionType
+  question       String
+  options        String[]
+  order          Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  isActive       Boolean         @default(true)
+  optionScores   Int[]           @default([])
+  isPublished    Boolean         @default(false)
+  year           Int
+  department     Department      @relation(fields: [departmentId], references: [id])
+  teacherAnswers TeacherAnswer[]
+
+  @@map("questions")
+}
+
+model TeacherAnswer {
+  id         String   @id @default(cuid())
+  teacherId  String
+  questionId String
+  term       TermType
+  answer     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  termId     String?
+  year       Int
+  question   Question @relation(fields: [questionId], references: [id])
+  teacher    User     @relation(fields: [teacherId], references: [id])
+  termRef    Term?    @relation(fields: [termId], references: [id])
+
+  @@unique([teacherId, questionId, term, year])
+  @@map("teacher_answers")
+}
+
+model SelfComment {
+  id        String   @id @default(cuid())
+  teacherId String
+  term      TermType
+  comment   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  submitted Boolean  @default(false)
+  termId    String?
+  year      Int
+  teacher   User     @relation(fields: [teacherId], references: [id])
+  termRef   Term?    @relation(fields: [termId], references: [id])
+
+  @@unique([teacherId, term, year])
+  @@map("self_comments")
+}
+
+model HodReview {
+  id         String   @id @default(cuid())
+  teacherId  String
+  term       TermType
+  reviewerId String
+  comments   String
+  scores     Json
+  submitted  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  termId     String?
+  year       Int
+  reviewer   User     @relation("HODReviewer", fields: [reviewerId], references: [id])
+  teacher    User     @relation("TeacherReviewed", fields: [teacherId], references: [id])
+  termRef    Term?    @relation(fields: [termId], references: [id])
+
+  @@unique([teacherId, term, year])
+  @@map("hod_reviews")
+}
+
+model AsstReview {
+  id         String   @id @default(cuid())
+  teacherId  String
+  term       TermType
+  reviewerId String
+  comments   String
+  scores     Json
+  submitted  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  termId     String?
+  year       Int
+  reviewer   User     @relation("AsstReviewer", fields: [reviewerId], references: [id])
+  teacher    User     @relation("TeacherReviewed", fields: [teacherId], references: [id])
+  termRef    Term?    @relation(fields: [termId], references: [id])
+
+  @@unique([teacherId, term, year])
+  @@map("asst_reviews")
+}
+
+model FinalReview {
+  id           String       @id @default(cuid())
+  teacherId    String
+  term         TermType
+  reviewerId   String
+  finalComment String
+  finalScore   Int
+  status       ReviewStatus
+  submitted    Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  termId       String?
+  year         Int
+  reviewer     User         @relation("FinalReviewer", fields: [reviewerId], references: [id])
+  teacher      User         @relation("TeacherReviewed", fields: [teacherId], references: [id])
+  termRef      Term?        @relation(fields: [termId], references: [id])
+
+  @@unique([teacherId, term, year])
+  @@map("final_reviews")
+}
+
+model HodPerformanceReview {
+  id         String        @id @default(cuid())
+  hodId      String
+  term       TermType
+  reviewerId String
+  comments   String
+  scores     Json
+  totalScore Int?
+  submitted  Boolean       @default(false)
+  termId     String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  year       Int
+  status     ReviewStatus?
+  hod        User          @relation("HODPerformanceSubject", fields: [hodId], references: [id])
+  reviewer   User          @relation("HODPerformanceReviewer", fields: [reviewerId], references: [id])
+  termRef    Term?         @relation(fields: [termId], references: [id])
+
+  @@unique([hodId, term, year, reviewerId])
+  @@map("hod_performance_reviews")
+}
+
+
 
 enum Role {
   TEACHER
@@ -42,238 +256,4 @@ enum ReviewStatus {
   PROMOTED
   ON_HOLD
   NEEDS_IMPROVEMENT
-}
-
-model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  password     String
-  name         String
-  role         Role
-  departmentId String?  // Optional for ADMIN
-  emailVerified DateTime?
-  failedLogins  Int      @default(0)
-  lastLogin     DateTime?
-  lockedUntil   DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  // Relations
-  department      Department?      @relation(fields: [departmentId], references: [id])
-  teacherAnswers  TeacherAnswer[]
-  selfComments    SelfComment[]
-  hodReviews      HodReview[]      @relation("HODReviewer")
-  asstReviews     AsstReview[]     @relation("AsstReviewer")
-  finalReviews    FinalReview[]    @relation("FinalReviewer")
-  // HOD performance reviews
-  hodPerformanceReviewsReceived HodPerformanceReview[] @relation("HODPerformanceSubject")
-  hodPerformanceReviewsGiven    HodPerformanceReview[] @relation("HODPerformanceReviewer")
-  
-  // Reviews received (when user is a teacher)
-  receivedHodReviews   HodReview[]   @relation("TeacherReviewed")
-  receivedAsstReviews  AsstReview[]  @relation("TeacherReviewed")
-  receivedFinalReviews FinalReview[] @relation("TeacherReviewed")
-
-  @@map("users")
-}
-
-model Department {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  users      User[]
-  termState  TermState?
-  questions  Question[]
-  terms      Term[]    @relation("DepartmentTerms")
-
-  @@map("departments")
-}
-
-model Term {
-  id        String     @id @default(cuid())
-  name      String
-  year      Int
-  status    TermStatus @default(INACTIVE)
-  startDate DateTime
-  endDate   DateTime
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-
-  // Relations
-  departments Department[] @relation("DepartmentTerms")
-  teacherAnswers TeacherAnswer[]
-  selfComments   SelfComment[]
-  hodReviews     HodReview[]
-  asstReviews    AsstReview[]
-  finalReviews   FinalReview[]
-  hodPerformanceReviews HodPerformanceReview[]
-
-  @@map("terms")
-}
-
-model TermState {
-  id           String   @id @default(cuid())
-  departmentId String   @unique
-  activeTerm   TermType
-  visibility   String   @default("DRAFT") // DRAFT or PUBLISHED for active term visibility (deprecated)
-  hodVisibility String  @default("DRAFT") // DRAFT or PUBLISHED for HOD evaluation publish
-  // New fields for term-specific publishing
-  startTermVisibility String @default("DRAFT") // DRAFT or PUBLISHED for START term
-  endTermVisibility   String @default("DRAFT") // DRAFT or PUBLISHED for END term
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  // Relations
-  department Department @relation(fields: [departmentId], references: [id])
-
-  @@map("term_state")
-}
-
-model Question {
-  id           String       @id @default(cuid())
-  departmentId String
-  term         TermType
-  type         QuestionType
-  question     String
-  options      String[]     // For MCQ and Checkbox only
-  optionScores Int[]        @default([]) // Optional weights aligned with options
-  isActive     Boolean      @default(true)
-  isPublished  Boolean      @default(false) // HOD must publish questions for teachers to see them
-  order        Int          @default(0)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-
-  // Relations
-  department     Department      @relation(fields: [departmentId], references: [id])
-  teacherAnswers TeacherAnswer[]
-
-  @@map("questions")
-}
-
-model TeacherAnswer {
-  id         String   @id @default(cuid())
-  teacherId  String
-  questionId String
-  term       TermType
-  answer     String
-  termId     String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  // Relations
-  teacher  User     @relation(fields: [teacherId], references: [id])
-  question Question @relation(fields: [questionId], references: [id])
-  termRef  Term?    @relation(fields: [termId], references: [id])
-
-  @@unique([teacherId, questionId, term])
-  @@map("teacher_answers")
-}
-
-model SelfComment {
-  id        String   @id @default(cuid())
-  teacherId String
-  term      TermType
-  comment   String
-  submitted Boolean  @default(false)
-  termId    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  teacher User @relation(fields: [teacherId], references: [id])
-  termRef Term? @relation(fields: [termId], references: [id])
-
-  @@unique([teacherId, term])
-  @@map("self_comments")
-}
-
-model HodReview {
-  id         String   @id @default(cuid())
-  teacherId  String
-  term       TermType
-  reviewerId String
-  comments   String
-  scores     Json     // { questionId: score, ... }
-  submitted  Boolean  @default(false)
-  termId     String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  // Relations
-  teacher  User @relation("TeacherReviewed", fields: [teacherId], references: [id])
-  reviewer User @relation("HODReviewer", fields: [reviewerId], references: [id])
-  termRef  Term? @relation(fields: [termId], references: [id])
-
-  @@unique([teacherId, term])
-  @@map("hod_reviews")
-}
-
-model AsstReview {
-  id         String   @id @default(cuid())
-  teacherId  String
-  term       TermType
-  reviewerId String
-  comments   String
-  scores     Json     // { questionId: score, ... }
-  submitted  Boolean  @default(false)
-  termId     String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  // Relations
-  teacher  User @relation("TeacherReviewed", fields: [teacherId], references: [id])
-  reviewer User @relation("AsstReviewer", fields: [reviewerId], references: [id])
-  termRef  Term? @relation(fields: [termId], references: [id])
-
-  @@unique([teacherId, term])
-  @@map("asst_reviews")
-}
-
-model FinalReview {
-  id           String       @id @default(cuid())
-  teacherId    String
-  term         TermType
-  reviewerId   String
-  finalComment String
-  finalScore   Int
-  status       ReviewStatus
-  submitted    Boolean      @default(false)
-  termId       String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-
-  // Relations
-  teacher  User @relation("TeacherReviewed", fields: [teacherId], references: [id])
-  reviewer User @relation("FinalReviewer", fields: [reviewerId], references: [id])
-  termRef  Term? @relation(fields: [termId], references: [id])
-
-  @@unique([teacherId, term])
-  @@map("final_reviews")
-}
-
-// Assistant Dean evaluates HOD performance (rubric stored in scores JSON)
-model HodPerformanceReview {
-  id         String   @id @default(cuid())
-  hodId      String
-  term       TermType
-  reviewerId String
-  comments   String
-  scores     Json
-  totalScore Int?
-  submitted  Boolean  @default(false)
-  status     ReviewStatus?
-  termId     String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  // Relations
-  hod      User @relation("HODPerformanceSubject", fields: [hodId], references: [id])
-  reviewer User @relation("HODPerformanceReviewer", fields: [reviewerId], references: [id])
-  termRef  Term? @relation(fields: [termId], references: [id])
-
-  @@unique([hodId, term, reviewerId])
-  @@map("hod_performance_reviews")
 }
