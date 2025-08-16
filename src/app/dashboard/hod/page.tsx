@@ -122,13 +122,13 @@ export default function HodDashboard() {
     try {
       const query = activeTerm ? `?term=${activeTerm}` : ''
       const response = await fetch(`/api/questions${query}`)
+      
       if (!response.ok) {
         throw new Error('Failed to fetch questions')
       }
       const data = await response.json()
       setQuestions(data.questions || [])
     } catch (error) {
-
       setError('Failed to load questions')
     }
   }
@@ -281,7 +281,6 @@ export default function HodDashboard() {
       setSuccess('Question deleted successfully!')
       await fetchQuestions()
     } catch (error) {
-
       setError(error instanceof Error ? error.message : 'Failed to delete question')
     } finally {
       setLoading(false)
@@ -829,13 +828,15 @@ export default function HodDashboard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs rounded-full px-2 py-1 border">
+                    <span className="text-xs rounded-full px-2 px-1 border">
                       Visibility: <span className={
                         visibility==='PUBLISHED' ? 'text-green-700' : 
                         visibility==='COMPLETE' ? 'text-red-700' : 
                         'text-yellow-700'
                       }>{visibility}</span>
                     </span>
+                    
+
                                           <Button
                         variant="outline"
                         size="sm"
@@ -851,8 +852,16 @@ export default function HodDashboard() {
 
                     <AlertDialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
                       <AlertDialogTrigger asChild>
-                        <Button size="sm" disabled={!activeTerm || visibility==='PUBLISHED' || visibility==='COMPLETE'} className="bg-blue-600 hover:bg-blue-700 text-white">Publish</Button>
+                        <Button 
+                          size="sm" 
+                          disabled={!activeTerm || visibility==='PUBLISHED' || visibility==='COMPLETE' || questions.length === 0} 
+                          className="bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                          Publish
+                        </Button>
                       </AlertDialogTrigger>
+                      
+
                       <AlertDialogContent>
                         <AlertDialogHeader>
                           <AlertDialogTitle>Publish questions for this term?</AlertDialogTitle>

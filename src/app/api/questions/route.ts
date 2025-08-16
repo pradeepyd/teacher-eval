@@ -29,6 +29,9 @@ export async function GET(request: NextRequest) {
       whereClause.term = term
     }
 
+    // Only fetch active questions (not soft-deleted)
+    whereClause.isActive = true
+
     const questions = await prisma.question.findMany({
       where: whereClause,
       include: {

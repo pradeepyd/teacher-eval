@@ -98,6 +98,13 @@ export async function DELETE(
       return NextResponse.json({ message: 'Question disabled (soft-deleted) because it has answers' })
     }
 
+    // For unpublished questions, do hard delete since they won't have answers
+    if (!existingQuestion.isPublished) {
+      await prisma.question.delete({ where: { id: questionId } })
+      return NextResponse.json({ message: 'Question deleted successfully' })
+    }
+
+    // For published questions with no answers, also do hard delete
     await prisma.question.delete({ where: { id: questionId } })
     return NextResponse.json({ message: 'Question deleted successfully' })
   } catch (error) {
