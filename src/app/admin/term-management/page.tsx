@@ -14,7 +14,7 @@ import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { Calendar, Play, Square, Plus, Edit2, Trash2, Loader2 } from 'lucide-react'
+import { Calendar, Play, Plus, Edit2, Trash2, Loader2, Info } from 'lucide-react'
 
 interface Term {
   id: string
@@ -26,9 +26,11 @@ interface Term {
   departments: {
     id: string
     name: string
-    termState: {
+    termStates: {
       activeTerm: string
-    } | null
+      startTermVisibility?: string
+      endTermVisibility?: string
+    }[]
   }[]
   createdAt: string
   updatedAt: string
@@ -50,9 +52,8 @@ export default function TermManagementPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingTerm, setEditingTerm] = useState<Term | null>(null)
   const [deletingTerm, setDeletingTerm] = useState<Term | null>(null)
-  const [dispatchDept, setDispatchDept] = useState<string>('')
-  const [dispatchTerm, setDispatchTerm] = useState<'START'|'END'>('START')
-  const [departmentStates, setDepartmentStates] = useState<Record<string, any>>({})
+  const [activatedTerms, setActivatedTerms] = useState<Set<string>>(new Set())
+  const [completedTerms, setCompletedTerms] = useState<Set<string>>(new Set())
 
   // Form state
   const [formData, setFormData] = useState({
@@ -75,9 +76,43 @@ export default function TermManagementPage() {
         throw new Error('Failed to fetch terms')
       }
       const data = await response.json()
+
       setTerms(data.terms || [])
+      
+      // Initialize activated and completed terms based on existing data
+      const activated = new Set<string>()
+      const completed = new Set<string>()
+      data.terms?.forEach((term: Term) => {
+
+        
+        // Check if term is activated
+        const isActivated = term.departments.some(dept => 
+          dept.termStates.some(ts => ts.activeTerm === term.status)
+        )
+        
+        // Check if term is completed
+        const isCompleted = term.departments.some(dept => 
+          dept.termStates.some(ts => 
+            (term.status === 'START' && ts.startTermVisibility === 'COMPLETE') ||
+            (term.status === 'END' && ts.endTermVisibility === 'COMPLETE')
+          )
+        )
+        
+        if (isActivated) {
+
+          activated.add(term.id)
+        }
+        
+        if (isCompleted) {
+
+          completed.add(term.id)
+        }
+      })
+      
+      setActivatedTerms(activated)
+      setCompletedTerms(completed)
     } catch (error) {
-      console.error('Error fetching terms:', error)
+
       setError('Failed to load terms')
     } finally {
       setLoading(false)
@@ -93,35 +128,9 @@ export default function TermManagementPage() {
       }
       const data = await response.json()
       setDepartments(data)
-      
-      // Fetch department states
-      await fetchDepartmentStates(data)
     } catch (error) {
-      console.error('Error fetching departments:', error)
-      setError('Failed to load departments')
-    }
-  }
 
-  // Fetch department publishing states
-  const fetchDepartmentStates = async (depts: Department[] = departments) => {
-    try {
-      const states: Record<string, any> = {}
-      await Promise.all(
-        depts.map(async (dept) => {
-          try {
-            const response = await fetch(`/api/departments/${dept.id}/term-state`)
-            if (response.ok) {
-              const data = await response.json()
-              states[dept.id] = data
-            }
-          } catch (e) {
-            // Ignore individual failures
-          }
-        })
-      )
-      setDepartmentStates(states)
-    } catch (error) {
-      console.error('Error fetching department states:', error)
+      setError('Failed to load departments')
     }
   }
 
@@ -145,6 +154,25 @@ export default function TermManagementPage() {
       return
     }
 
+    // Check if any selected departments already have terms of the same type for the same year
+    const conflictingDepartments = formData.selectedDepartments.filter(deptId => {
+      const existingTerm = terms.find(term => 
+        term.year === parseInt(formData.year) && 
+        term.status === formData.termType &&
+        term.departments.some(d => d.id === deptId)
+      )
+      return existingTerm !== undefined
+    })
+
+    if (conflictingDepartments.length > 0) {
+      const deptNames = departments
+        .filter(d => conflictingDepartments.includes(d.id))
+        .map(d => d.name)
+        .join(', ')
+      setError(`Cannot create ${formData.termType} term for ${deptNames} in ${formData.year}. A term of this type already exists for these departments.`)
+      return
+    }
+
     setSubmitting(true)
     setError(null)
     setSuccess(null)
@@ -165,7 +193,16 @@ export default function TermManagementPage() {
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to create term')
+        const errorMessage = errorData.error || 'Failed to create term'
+        
+        // Show more helpful error messages for common validation issues
+        if (errorMessage.includes('already exists')) {
+          throw new Error(errorMessage)
+        } else if (errorMessage.includes('Missing required fields')) {
+          throw new Error('Please fill in all required fields')
+        } else {
+          throw new Error(errorMessage)
+        }
       }
 
       setSuccess('Term created successfully!')
@@ -173,7 +210,7 @@ export default function TermManagementPage() {
       setShowAddModal(false)
       resetForm()
     } catch (error) {
-      console.error('Error creating term:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to create term')
     } finally {
       setSubmitting(false)
@@ -216,7 +253,7 @@ export default function TermManagementPage() {
       setShowAddModal(false)
       resetForm()
     } catch (error) {
-      console.error('Error updating term:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to update term')
     } finally {
       setSubmitting(false)
@@ -245,7 +282,7 @@ export default function TermManagementPage() {
       await fetchTerms()
       setDeletingTerm(null)
     } catch (error) {
-      console.error('Error deleting term:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to delete term')
     } finally {
       setSubmitting(false)
@@ -269,10 +306,13 @@ export default function TermManagementPage() {
       }
 
       setSuccess('START term activated successfully!')
+      setActivatedTerms(prev => {
+        const newSet = new Set([...prev, termId])
+        return newSet
+      })
       await fetchTerms()
-      await fetchDepartmentStates()
     } catch (error) {
-      console.error('Error starting term:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to start term')
     } finally {
       setSubmitting(false)
@@ -296,10 +336,13 @@ export default function TermManagementPage() {
       }
 
       setSuccess('END term activated successfully!')
+      setActivatedTerms(prev => {
+        const newSet = new Set([...prev, termId])
+        return newSet
+      })
       await fetchTerms()
-      await fetchDepartmentStates()
     } catch (error) {
-      console.error('Error ending term:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to end term')
     } finally {
       setSubmitting(false)
@@ -331,8 +374,6 @@ export default function TermManagementPage() {
         return <Badge variant="secondary">Inactive</Badge>
     }
   }
-
-  // Removed unused getStatusColor
 
   // Load data on component mount
   useEffect(() => {
@@ -388,235 +429,63 @@ export default function TermManagementPage() {
         )}
 
         <div className="space-y-6">
-          {/* Dispatch Evaluations */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Dispatch Evaluations</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Term Status Information */}
+          <Card className="bg-blue-50 border-blue-200">
+            <CardContent className="py-4">
+              <div className="flex items-center space-x-2">
+                <Info className="h-5 w-5 text-blue-600" />
                 <div>
-                  <label className="text-sm font-medium">Department</label>
-                  <Select value={dispatchDept} onValueChange={setDispatchDept}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.map((d) => (
-                        <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Term <span className="text-blue-600 font-medium">({dispatchTerm})</span></label>
-                  <Select value={dispatchTerm} onValueChange={(v: any) => setDispatchTerm(v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select term" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="START">START - Beginning of Year</SelectItem>
-                      <SelectItem value="END">END - End of Year</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col md:flex-row md:flex-wrap md:items-end md:justify-end gap-2">
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                    type="button"
-                    className="w-full md:w-full bg-blue-600 hover:bg-blue-700"
-                    variant="default"
-                    disabled={!dispatchDept || submitting}
-                      >
-                        Enable HOD Review Access ({dispatchTerm})
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Enable HOD Review Access for {dispatchTerm} Term?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will enable HODs to <strong>review and evaluate teachers</strong> for the {dispatchTerm} term in the selected department. Note: Teachers can already access evaluations once HOD creates questions. Proceed?
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={async () => {
-                            if (!dispatchDept) return
-                            setSubmitting(true)
-                            setError(null)
-                            setSuccess(null)
-                            try {
-                              const res = await fetch(`/api/departments/${dispatchDept}/term-state`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ 
-                                  activeTerm: dispatchTerm, 
-                                  term: dispatchTerm, 
-                                  termVisibility: 'PUBLISHED' 
-                                })
-                              })
-                              if (!res.ok) {
-                                const data = await res.json().catch(() => ({}))
-                                throw new Error(data.error || 'Failed to publish teacher evaluation')
-                              }
-                              setSuccess(`${dispatchTerm} term teacher evaluation published for selected department`)
-                              toast.success(`${dispatchTerm} term teacher evaluation published`)
-                              await fetchDepartmentStates()
-                            } catch (e) {
-                              const msg = e instanceof Error ? e.message : 'Failed to publish teacher evaluation'
-                              setError(msg)
-                              toast.error(msg)
-                            } finally {
-                              setSubmitting(false)
-                            }
-                          }}
-                          disabled={submitting}
-                        >
-                          Confirm Publish
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        type="button"
-                        className="w-full md:w-full bg-blue-600 hover:bg-blue-700 text-white"
-                        variant="default"
-                        disabled={!dispatchDept || submitting}
-                      >
-                        Publish HOD Evaluation
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Publish HOD Evaluation Access?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will enable <strong>Assistant Dean and Dean to evaluate HODs</strong> for the selected department and term. Note: HODs already have access to review teachers once teacher evaluations are published above.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={async () => {
-                            if (!dispatchDept) return
-                            setSubmitting(true)
-                            setError(null)
-                            setSuccess(null)
-                            try {
-                              const res = await fetch(`/api/departments/${dispatchDept}/term-state`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ activeTerm: dispatchTerm, hodVisibility: 'PUBLISHED' })
-                              })
-                              if (!res.ok) {
-                                const data = await res.json().catch(() => ({}))
-                                throw new Error(data.error || 'Failed to publish HOD evaluation')
-                              }
-                              setSuccess(`${dispatchTerm} term HOD evaluation published for selected department`)
-                              toast.success(`${dispatchTerm} term HOD evaluation published`)
-                              await fetchDepartmentStates()
-                            } catch (e) {
-                              const msg = e instanceof Error ? e.message : 'Failed to publish HOD evaluation'
-                              setError(msg)
-                              toast.error(msg)
-                            } finally {
-                              setSubmitting(false)
-                            }
-                          }}
-                          disabled={submitting}
-                        >
-                          Confirm Publish
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  <h3 className="text-sm font-medium text-blue-900">Simple Workflow</h3>
+                  <p className="text-xs text-blue-700">
+                    <strong>1.</strong> Create START and END terms for the year. 
+                    <strong>2.</strong> Activate a term (START or END). 
+                    <strong>3.</strong> HOD publishes questions → Teachers submit answers → HOD evaluates automatically. 
+                    <strong>4.</strong> Assistant Dean and Dean complete the evaluation cycle.
+                  </p>
                 </div>
               </div>
-              <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                <div className="text-sm font-medium text-blue-900 mb-1">Publishing Preview:</div>
-                <div className="text-sm text-blue-700">
-                  {dispatchDept && dispatchTerm ? (
-                    <>Department: <span className="font-medium">{departments.find(d => d.id === dispatchDept)?.name}</span> | Term: <span className="font-medium">{dispatchTerm}</span></>
-                  ) : (
-                    "Select department and term to see preview"
-                  )}
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                <strong>HOD Review Access:</strong> Enables HODs to review and score teachers (teachers already have access once HOD creates questions). <strong>HOD Evaluation:</strong> Enables Assistant Dean/Dean to evaluate HODs.
-              </p>
             </CardContent>
           </Card>
 
-          {/* Department Publishing Status */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Department Publishing Status</CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fetchDepartmentStates()}
-                  disabled={loading}
-                >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Refresh
-                </Button>
+          {/* Current Year Term Status */}
+          <Card className="bg-gray-50 border-gray-200">
+            <CardContent className="py-4">
+              <div className="flex items-center space-x-2 mb-3">
+                <Info className="h-5 w-5 text-gray-600" />
+                <h3 className="text-sm font-medium text-gray-900">Current Year ({new Date().getFullYear()}) Term Status</h3>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {departments.map((dept) => {
-                  const state = departmentStates[dept.id]
-                  const startPublished = state?.startTermVisibility === 'PUBLISHED' || state?.visibility === 'PUBLISHED'
-                  const endPublished = state?.endTermVisibility === 'PUBLISHED' || state?.visibility === 'PUBLISHED'
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {departments.map(dept => {
+                  const startTerm = terms.find(term => 
+                    term.year === new Date().getFullYear() && 
+                    term.status === 'START' &&
+                    term.departments.some(d => d.id === dept.id)
+                  )
+                  const endTerm = terms.find(term => 
+                    term.year === new Date().getFullYear() && 
+                    term.status === 'END' &&
+                    term.departments.some(d => d.id === dept.id)
+                  )
                   
                   return (
-                    <div key={dept.id} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="font-medium">{dept.name}</h3>
-                        <Badge variant="outline">
-                          Active: {state?.activeTerm || 'Not Set'}
-                        </Badge>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span>START Term:</span>
-                          <Badge 
-                            className={startPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}
-                          >
-                            {startPublished ? 'Published' : 'Draft'}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span>END Term:</span>
-                          <Badge 
-                            className={endPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}
-                          >
-                            {endPublished ? 'Published' : 'Draft'}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span>HOD Evaluation:</span>
-                          <Badge 
-                            className={state?.hodVisibility === 'PUBLISHED' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}
-                          >
-                            {state?.hodVisibility === 'PUBLISHED' ? 'Published' : 'Draft'}
-                          </Badge>
-                        </div>
+                    <div key={dept.id} className="text-xs space-y-1">
+                      <div className="font-medium text-gray-700">{dept.name}</div>
+                      <div className="flex space-x-2">
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          startTerm ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          START: {startTerm ? '✓ Created' : '✗ Missing'}
+                        </span>
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          endTerm ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          END: {endTerm ? '✓ Created' : '✗ Missing'}
+                        </span>
                       </div>
                     </div>
                   )
                 })}
               </div>
-              {departments.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  No departments found. Create departments first.
-                </div>
-              )}
             </CardContent>
           </Card>
 
@@ -624,7 +493,7 @@ export default function TermManagementPage() {
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold">Term Management</h1>
-              <p className="text-muted-foreground">Manage evaluation terms and their status</p>
+              <p className="text-muted-foreground">Create and manage evaluation terms</p>
             </div>
             <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
               <DialogTrigger asChild>
@@ -633,12 +502,24 @@ export default function TermManagementPage() {
                   Add Term
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
+              <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{editingTerm ? 'Edit Term' : 'Add New Term'}</DialogTitle>
                   <DialogDescription>
                     {editingTerm ? 'Update term information' : 'Create a new evaluation term'}
                   </DialogDescription>
+                  {!editingTerm && (
+                    <div className="text-xs text-amber-600 bg-amber-50 p-3 rounded border border-amber-200">
+                      <div className="flex items-start space-x-2">
+                        <span className="text-amber-600">⚠️</span>
+                        <div>
+                          <strong>Important:</strong> You cannot create multiple terms of the same type (START/END) for the same department in the same year.
+                          <br />
+                          <span className="text-amber-700">Complete the existing term first before creating a new one.</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
@@ -712,29 +593,81 @@ export default function TermManagementPage() {
                   <div className="grid gap-2">
                     <label className="text-sm font-medium">Assign to Departments</label>
                     <div className="space-y-2 max-h-32 overflow-y-auto">
-                      {departments.map(dept => (
-                        <div key={dept.id} className="flex items-center space-x-2">
-                          <input
-                            type="checkbox"
-                            id={`dept-${dept.id}`}
-                            checked={formData.selectedDepartments.includes(dept.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData({ ...formData, selectedDepartments: [...formData.selectedDepartments, dept.id] })
-                              } else {
-                                setFormData({ ...formData, selectedDepartments: formData.selectedDepartments.filter(id => id !== dept.id) })
-                              }
-                            }}
-                            disabled={submitting}
-                            className="rounded"
-                          />
-                          <label htmlFor={`dept-${dept.id}`} className="text-sm">
-                            {dept.name}
-                          </label>
-                        </div>
-                      ))}
+                      {departments.map(dept => {
+                        // Check if this department already has a term of the selected type for the selected year
+                        const existingTerm = terms.find(term => 
+                          term.year === parseInt(formData.year) && 
+                          term.status === formData.termType &&
+                          term.departments.some(d => d.id === dept.id)
+                        )
+                        
+                        const isDisabled = existingTerm !== undefined
+                        
+                        return (
+                          <div key={dept.id} className="space-y-1">
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id={`dept-${dept.id}`}
+                                checked={formData.selectedDepartments.includes(dept.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setFormData({ ...formData, selectedDepartments: [...formData.selectedDepartments, dept.id] })
+                                  } else {
+                                    setFormData({ ...formData, selectedDepartments: formData.selectedDepartments.filter(id => id !== dept.id) })
+                                  }
+                                }}
+                                disabled={submitting || isDisabled}
+                                className="rounded"
+                              />
+                              <label htmlFor={`dept-${dept.id}`} className={`text-sm ${isDisabled ? 'text-gray-400' : ''}`}>
+                                {dept.name}
+                              </label>
+                            </div>
+                                                        {existingTerm && (
+                              <div className="ml-6 text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                                <div className="flex items-center space-x-1">
+                                  <span>⚠️</span>
+                                  <span className="font-medium">{formData.termType} term exists for {formData.year}</span>
+                                </div>
+                                <span className="text-amber-700">Complete existing term first</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
+                  
+                  {/* Validation Message */}
+                  {(() => {
+                    const disabledDepartments = departments.filter(dept => {
+                      const existingTerm = terms.find(term => 
+                        term.year === parseInt(formData.year) && 
+                        term.status === formData.termType &&
+                        term.departments.some(d => d.id === dept.id)
+                      )
+                      return existingTerm !== undefined
+                    })
+                    
+                    if (disabledDepartments.length > 0) {
+                      return (
+                        <div className="text-xs text-amber-600 bg-amber-50 p-3 rounded border border-amber-200">
+                          <div className="flex items-start space-x-2">
+                            <span className="text-amber-600">ℹ️</span>
+                            <div>
+                              <strong>Departments with existing {formData.termType} terms for {formData.year}:</strong>
+                              <br />
+                              <span className="text-amber-700 font-medium">{disabledDepartments.map(d => d.name).join(', ')}</span>
+                              <br />
+                              <span className="text-amber-600">These departments cannot be selected until the existing term is completed.</span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setShowAddModal(false)} disabled={submitting}>
@@ -800,7 +733,9 @@ export default function TermManagementPage() {
                           <div className="flex items-center space-x-2">
                             {term.status === 'START' && (
                               <>
-                                {term.departments.some(dept => dept.termState?.activeTerm === 'START') ? (
+                                {completedTerms.has(term.id) ? (
+                                  <Badge className="bg-purple-100 text-purple-800">Complete</Badge>
+                                ) : activatedTerms.has(term.id) ? (
                                   <Badge className="bg-green-100 text-green-800">Active</Badge>
                                 ) : (
                                   <Button
@@ -817,7 +752,9 @@ export default function TermManagementPage() {
                             )}
                             {term.status === 'END' && (
                               <>
-                                {term.departments.some(dept => dept.termState?.activeTerm === 'END') ? (
+                                {completedTerms.has(term.id) ? (
+                                  <Badge className="bg-purple-100 text-purple-800">Complete</Badge>
+                                ) : activatedTerms.has(term.id) ? (
                                   <Badge className="bg-blue-100 text-blue-800">Active</Badge>
                                 ) : (
                                   <Button
@@ -832,14 +769,15 @@ export default function TermManagementPage() {
                                 )}
                               </>
                             )}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openEditModal(term)}
-                              disabled={submitting}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
+                                                         <Button
+                               variant="outline"
+                               size="sm"
+                               onClick={() => openEditModal(term)}
+                               disabled={submitting || completedTerms.has(term.id)}
+                               className={completedTerms.has(term.id) ? "opacity-50 cursor-not-allowed" : ""}
+                             >
+                               <Edit2 className="h-4 w-4" />
+                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button
