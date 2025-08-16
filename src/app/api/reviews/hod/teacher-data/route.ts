@@ -25,18 +25,17 @@ export async function GET(request: NextRequest) {
 
       // HOD can access teacher list if ANY term evaluation is published
       // Individual teacher access is still controlled by specific term publishing
-      const termState = await prisma.termState.findUnique({ where: { departmentId } })
-      const hasAnyReviewAccess = 
-        (termState as any)?.startTermVisibility === 'PUBLISHED' || 
-        (termState as any)?.endTermVisibility === 'PUBLISHED' ||
-        termState?.visibility === 'PUBLISHED'
-      
-      if (!hasAnyReviewAccess) {
-        return NextResponse.json({ 
-          teachers: [], 
-          message: 'Teacher evaluation review access not enabled. Contact admin to publish teacher evaluation access for HOD review.' 
-        })
-      }
+      const currentYear = new Date().getFullYear()
+    const termState = await prisma.termState.findUnique({ 
+      where: { 
+        departmentId_year: {
+          departmentId,
+          year: currentYear
+        }
+      } 
+    })
+      // HOD can always review teachers in their department - no admin permission needed
+      const hasAnyReviewAccess = true
 
       // Determine active term for department (optional)
       const activeTerm = termState?.activeTerm || 'START'
@@ -62,7 +61,7 @@ export async function GET(request: NextRequest) {
         // teacher submission check: answers exist OR selfComment.submitted === true
         const [answersCount, selfComment] = await Promise.all([
           prisma.teacherAnswer.count({ where: { teacherId: t.id, term: activeTerm as any } }),
-          prisma.selfComment.findUnique({ where: { teacherId_term: { teacherId: t.id, term: activeTerm as any } }, select: { submitted: true } })
+          prisma.selfComment.findUnique({ where: { teacherId_term_year: { teacherId: t.id, term: activeTerm as any, year: new Date().getFullYear() } }, select: { submitted: true } })
         ])
         const teacherSubmitted = answersCount > 0 || !!selfComment?.submitted
 
@@ -89,19 +88,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
     }
 
-    // Check if teacher evaluation is published for the specific term
-    const termState = await prisma.termState.findUnique({ 
-      where: { departmentId: session.user.departmentId } 
-    })
-    const isTermPublished = term === 'START' 
-      ? ((termState as any)?.startTermVisibility === 'PUBLISHED' || termState?.visibility === 'PUBLISHED')
-      : ((termState as any)?.endTermVisibility === 'PUBLISHED' || termState?.visibility === 'PUBLISHED')
-    
-    if (!isTermPublished) {
-      return NextResponse.json({ 
-        error: `${term} term teacher evaluation review access not enabled. Contact admin to publish teacher evaluation access for HOD review.` 
-      }, { status: 403 })
-    }
+    // HOD can always review teachers in their department - no admin permission needed
 
     // Verify teacher belongs to HOD's department
     const teacher = await prisma.user.findUnique({
@@ -132,9 +119,10 @@ export async function GET(request: NextRequest) {
     // Get teacher's self comment
     const selfComment = await prisma.selfComment.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
         }
       }
     })
@@ -142,9 +130,10 @@ export async function GET(request: NextRequest) {
     // Get existing HOD review
     const existingReview = await prisma.hodReview.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
         }
       }
     })

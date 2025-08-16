@@ -49,7 +49,15 @@ export async function PUT(
     const sessionDeptId = (session.user as any).departmentId
 
     if (role === 'ADMIN') {
-      const current = await prisma.termState.findUnique({ where: { departmentId } })
+      const currentYear = new Date().getFullYear()
+      const current = await prisma.termState.findUnique({ 
+        where: { 
+          departmentId_year: {
+            departmentId,
+            year: currentYear
+          }
+        } 
+      })
       
       // Handle new term-specific publishing for ADMIN
       if (term && termVisibility) {
@@ -64,97 +72,7 @@ export async function PUT(
           const termExists = await prisma.term.findFirst({
             where: {
               status: term as any,
-              departments: { some: { id: departmentId } },
-            },
-            select: { id: true },
-          })
-          if (!termExists) {
-            return NextResponse.json({
-              error: `Create a Term and assign this department (matching ${term}) before publishing evaluations.`,
-            }, { status: 400 })
-          }
-        }
-
-        // Update the specific term visibility
-        const updateData: any = { activeTerm }
-        if (term === 'START') {
-          updateData.startTermVisibility = termVisibility
-        } else if (term === 'END') {
-          updateData.endTermVisibility = termVisibility
-        }
-
-        const updated = await prisma.termState.upsert({
-          where: { departmentId },
-          update: updateData,
-          create: { 
-            departmentId, 
-            activeTerm,
-            startTermVisibility: term === 'START' ? termVisibility : 'DRAFT',
-            endTermVisibility: term === 'END' ? termVisibility : 'DRAFT',
-            hodVisibility: hodVisibility || 'DRAFT' 
-          } as any
-        })
-        return NextResponse.json(updated)
-      }
-
-      // Fallback to old logic for backward compatibility
-      // If already published for this active term, block re-publish
-      if (current && current.visibility === 'PUBLISHED' && current.activeTerm === activeTerm && visibility === 'PUBLISHED') {
-        return NextResponse.json({ error: 'This term has already been published for this department' }, { status: 400 })
-      }
-
-      // Enforce: cannot publish teacher evaluation without an existing Term linked to this department for the target term
-      // HOD evaluation publishing doesn't require term existence check
-      if (visibility === 'PUBLISHED') {
-        const termExists = await prisma.term.findFirst({
-          where: {
-            status: activeTerm as any,
-            departments: { some: { id: departmentId } },
-          },
-          select: { id: true },
-        })
-        if (!termExists) {
-          return NextResponse.json({
-            error: 'Create a Term and assign this department to it (with matching START/END status) before publishing teacher evaluations.',
-          }, { status: 400 })
-        }
-      }
-
-      // If Admin switches activeTerm but doesn't specify visibility, reset visibility to DRAFT for the new term
-      let nextVisibility = visibility
-      if (current && current.activeTerm !== activeTerm && !visibility) {
-        nextVisibility = 'DRAFT'
-      }
-
-      const termState = await prisma.termState.upsert({
-        where: { departmentId },
-        update: { activeTerm, ...(nextVisibility ? { visibility: nextVisibility } : {}), ...(hodVisibility ? { hodVisibility } : {}) },
-        create: { departmentId, activeTerm, visibility: nextVisibility || 'DRAFT', hodVisibility: hodVisibility || 'DRAFT' }
-      })
-      return NextResponse.json(termState)
-    }
-
-    if (role === 'HOD') {
-      if (sessionDeptId !== departmentId) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-
-      // Read current state
-      const current = await prisma.termState.findUnique({ where: { departmentId } })
-      
-      // Handle new term-specific publishing
-      if (term && termVisibility) {
-        // Check if already published for this specific term
-        const fieldToCheck = term === 'START' ? 'startTermVisibility' : 'endTermVisibility'
-        if (current && (current as any)[fieldToCheck] === 'PUBLISHED' && termVisibility === 'PUBLISHED') {
-          return NextResponse.json({ error: `Already published for ${term} term` }, { status: 400 })
-        }
-
-        // Enforce term existence when attempting to publish
-        if (termVisibility === 'PUBLISHED') {
-          const termExists = await prisma.term.findFirst({
-            where: {
-              status: term as any,
+              year: currentYear,
               departments: { some: { id: departmentId } },
             },
             select: { id: true },
@@ -175,11 +93,17 @@ export async function PUT(
         }
 
         const updated = await prisma.termState.upsert({
-          where: { departmentId },
+          where: { 
+            departmentId_year: {
+              departmentId,
+              year: currentYear
+            }
+          },
           update: updateData,
           create: { 
             departmentId, 
-            activeTerm: (activeTerm as any) || 'START', 
+            activeTerm,
+            year: currentYear,
             startTermVisibility: term === 'START' ? termVisibility : 'DRAFT',
             endTermVisibility: term === 'END' ? termVisibility : 'DRAFT',
             hodVisibility: hodVisibility || 'DRAFT' 
@@ -203,6 +127,7 @@ export async function PUT(
         const termExists = await prisma.term.findFirst({
           where: {
             status: effectiveTerm,
+            year: currentYear,
             departments: { some: { id: departmentId } },
           },
           select: { id: true },
@@ -214,16 +139,85 @@ export async function PUT(
         }
       }
       const updated = await prisma.termState.upsert({
-        where: { departmentId },
+        where: { 
+          departmentId_year: {
+            departmentId,
+            year: currentYear
+          }
+        },
         update: { ...(visibility ? { visibility } : {}), ...(hodVisibility ? { hodVisibility } : {}) },
-        create: { departmentId, activeTerm: (activeTerm as any) || 'START', visibility: visibility || 'DRAFT', hodVisibility: hodVisibility || 'DRAFT' }
+        create: { 
+          departmentId, 
+          activeTerm: (activeTerm as any) || 'START', 
+          year: currentYear,
+          visibility: visibility || 'DRAFT', 
+          hodVisibility: hodVisibility || 'DRAFT' 
+        }
       })
       return NextResponse.json(updated)
     }
 
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (role === 'HOD') {
+      if (sessionDeptId !== departmentId) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
 
-    
+      const currentYear = new Date().getFullYear()
+      // Read current state
+      const current = await prisma.termState.findUnique({ 
+        where: { 
+          departmentId_year: {
+            departmentId,
+            year: currentYear
+          }
+        } 
+      })
+      
+      // HOD can only change visibility, not activeTerm
+      if (visibility) {
+        const updated = await prisma.termState.upsert({
+          where: { 
+            departmentId_year: {
+              departmentId,
+              year: currentYear
+            }
+          },
+          update: { visibility },
+          create: { 
+            departmentId, 
+            activeTerm: (activeTerm as any) || 'START', 
+            year: currentYear,
+            visibility: visibility || 'DRAFT', 
+            hodVisibility: hodVisibility || 'DRAFT' 
+          }
+        })
+        return NextResponse.json(updated)
+      }
+
+      if (hodVisibility) {
+        const updated = await prisma.termState.upsert({
+          where: { 
+            departmentId_year: {
+              departmentId,
+              year: currentYear
+            }
+          },
+          update: { hodVisibility },
+          create: { 
+            departmentId, 
+            activeTerm: (activeTerm as any) || 'START', 
+            year: currentYear,
+            visibility: visibility || 'DRAFT', 
+            hodVisibility: hodVisibility || 'DRAFT' 
+          }
+        })
+        return NextResponse.json(updated)
+      }
+
+      return NextResponse.json(current)
+    }
+
+    return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
   } catch (error) {
     console.error('Error updating term state:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -246,7 +240,10 @@ export async function GET(
 
     let termState = await prisma.termState.findUnique({
       where: {
-        departmentId: departmentId
+        departmentId_year: {
+          departmentId,
+          year: new Date().getFullYear()
+        }
       },
       include: {
         department: true
@@ -255,26 +252,44 @@ export async function GET(
 
     if (!termState) {
       // Fallback: derive from current terms and create if needed
+      const currentYear = new Date().getFullYear()
       const activeTerm = await prisma.term.findFirst({
         where: {
           OR: [
             { status: 'START' },
             { status: 'END' }
           ],
+          year: currentYear,
           departments: { some: { id: departmentId } }
         },
         orderBy: { updatedAt: 'desc' }
       })
 
       if (activeTerm) {
+        console.log(`Creating missing TermState for department ${departmentId} with active term: ${activeTerm.status} for year ${currentYear}`)
         termState = await prisma.termState.upsert({
-          where: { departmentId },
+          where: { 
+            departmentId_year: {
+              departmentId,
+              year: currentYear
+            }
+          },
           update: { activeTerm: activeTerm.status as any },
-          create: { departmentId, activeTerm: activeTerm.status as any },
+          create: {
+            departmentId,
+            year: currentYear,
+            activeTerm: activeTerm.status as any,
+            visibility: 'DRAFT',
+            hodVisibility: 'DRAFT',
+            startTermVisibility: 'DRAFT',
+            endTermVisibility: 'DRAFT'
+          },
           include: { department: true }
         })
+        console.log(`Successfully created TermState for department ${departmentId} for year ${currentYear}:`, termState)
       } else {
-        return NextResponse.json({ departmentId, activeTerm: null }, { status: 200 })
+        console.log(`No active terms found for department ${departmentId} for year ${currentYear}`)
+        return NextResponse.json({ departmentId, activeTerm: null, year: currentYear }, { status: 200 })
       }
     }
 

@@ -4,6 +4,12 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcrypt'
+import { z } from 'zod'
+
+// Password validation schema
+const passwordSchema = z.string()
+  .min(8, 'Password must be at least 8 characters long')
+  .regex(/[0-9]/, 'Password must contain at least one number')
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,9 +44,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Department ID is required for this role' }, { status: 400 })
     }
 
-    // Simple password validation
-    if (password.length < 6) {
-      return NextResponse.json({ error: 'Password must be at least 6 characters long' }, { status: 400 })
+    // Validate password using Zod schema
+    const passwordValidation = passwordSchema.safeParse(password)
+    if (!passwordValidation.success) {
+      return NextResponse.json({ 
+        error: 'Password validation failed',
+        details: passwordValidation.error.issues.map(issue => issue.message)
+      }, { status: 400 })
     }
 
     const hashedPassword = await bcrypt.hash(password, 10)
@@ -64,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     // Log admin user creation
     if (role === 'ADMIN') {
-      console.log(`New admin user created: ${email} by ${session.user.email} at ${new Date().toISOString()}`)
+
     }
 
     return NextResponse.json({
@@ -72,7 +82,7 @@ export async function POST(request: NextRequest) {
       status: 'active'
     })
   } catch (error) {
-    console.error('Error creating user:', error)
+    
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -116,7 +126,7 @@ export async function GET(request: NextRequest) {
       users: users.map(u => ({ ...u, status: 'active' as const }))
     })
   } catch (error) {
-    console.error('Error fetching users:', error)
+    
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

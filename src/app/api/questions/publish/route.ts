@@ -12,43 +12,52 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { term } = await request.json()
+    const { departmentId, term, year } = await request.json()
 
-    if (!term || !['START', 'END'].includes(term)) {
-      return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
+    if (!departmentId || !term || !year) {
+      return NextResponse.json({ error: 'Department ID, term, and year are required' }, { status: 400 })
     }
 
-    // Check if there are questions to publish
-    const questionsCount = await prisma.question.count({
-      where: {
-        departmentId: session.user.departmentId,
-        term: term as 'START' | 'END',
-        isActive: true,
-        isPublished: false
-      }
-    })
-
-    if (questionsCount === 0) {
-      return NextResponse.json({ 
-        error: 'No unpublished questions found for this term' 
-      }, { status: 400 })
+    if (!['START', 'END'].includes(term)) {
+      return NextResponse.json({ error: 'Invalid term. Must be START or END' }, { status: 400 })
     }
 
-    // Publish all questions for this term
+    // Verify the HOD belongs to this department
+    if (session.user.departmentId !== departmentId) {
+      return NextResponse.json({ error: 'Unauthorized to publish questions for this department' }, { status: 403 })
+    }
+
+    // Publish all questions for this department, term, and year
     const result = await prisma.question.updateMany({
       where: {
-        departmentId: session.user.departmentId,
+        departmentId,
         term: term as 'START' | 'END',
-        isActive: true,
-        isPublished: false
+        year: parseInt(year),
+        isActive: true
       },
       data: {
         isPublished: true
       }
     })
 
+    // Update TermState visibility to PUBLISHED for this term
+    await prisma.termState.updateMany({
+      where: {
+        departmentId,
+        year: parseInt(year)
+      },
+      data: {
+        ...(term === 'START' ? { startTermVisibility: 'PUBLISHED' } : {}),
+        ...(term === 'END' ? { endTermVisibility: 'PUBLISHED' } : {}),
+        visibility: 'PUBLISHED'  // Set overall visibility to PUBLISHED
+      }
+    })
+
+    console.log(`Published ${result.count} questions for department ${departmentId}, term ${term}, year ${year}`)
+    console.log(`Updated TermState visibility to PUBLISHED for ${term} term`)
+
     return NextResponse.json({ 
-      message: `${result.count} questions published for ${term} term`,
+      message: `Successfully published ${result.count} questions`,
       publishedCount: result.count
     })
   } catch (error) {

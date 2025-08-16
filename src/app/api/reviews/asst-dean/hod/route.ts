@@ -31,14 +31,8 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Enforce HOD evaluation publish gate per department term
-    const deptIds = Array.from(new Set(hods.map(h => h.department?.id).filter(Boolean))) as string[]
-    const termStates = await prisma.termState.findMany({ where: { departmentId: { in: deptIds } } })
-    const deptIdToGate = new Map(termStates.map((s: any) => [s.departmentId, s]))
-    const filtered = hods.filter(h => {
-      const s: any = h.department ? deptIdToGate.get(h.department.id) : null
-      return s && s.activeTerm === term && (s.hodVisibility === 'PUBLISHED')
-    })
+    // HODs can always be evaluated by Assistant Dean - no admin permission needed
+    const filtered = hods.filter(h => h.department?.id)
 
     return NextResponse.json({ hods: filtered })
   } catch (e) {
@@ -74,23 +68,31 @@ export async function POST(request: NextRequest) {
       computedTotal = max > 0 ? Math.round((raw / max) * 100) : null
     }
 
-    const review = await prisma.hodPerformanceReview.upsert({
-      where: { hodId_term_reviewerId: { hodId, term, reviewerId: session.user.id } as any },
-      update: {
-        reviewerId: session.user.id,
-        comments: comments ?? '',
-        scores: scores ?? {},
-        totalScore: computedTotal,
-        submitted: true,
-      },
-      create: {
+    const existingReview = await prisma.hodPerformanceReview.findUnique({
+      where: { 
+        hodId_term_year_reviewerId: { 
+          hodId, 
+          term, 
+          year: new Date().getFullYear(),
+          reviewerId: session.user.id 
+        } 
+      }
+    })
+
+    if (existingReview) {
+      return NextResponse.json({ error: 'Review already submitted for this HOD and term' }, { status: 400 })
+    }
+
+    const review = await prisma.hodPerformanceReview.create({
+      data: {
         hodId,
         term,
+        year: new Date().getFullYear(),
         reviewerId: session.user.id,
-        comments: comments ?? '',
-        scores: scores ?? {},
-        totalScore: computedTotal,
-        submitted: true,
+        comments,
+        scores,
+        totalScore,
+        submitted: true
       }
     })
 

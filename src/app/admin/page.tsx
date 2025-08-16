@@ -95,7 +95,7 @@ export default function AdminDashboard() {
 
         setActivities(Array.isArray(activityJson.activities) ? activityJson.activities : [])
       } catch (error) {
-        console.error('Error fetching dashboard data:', error)
+  
       } finally {
         setLoading(false)
       }

@@ -19,11 +19,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
     }
 
-    // Teachers can only access questions that HOD has published
-    // Check if there are published questions available for this term
+    // Teachers can only access questions that HOD has published for current year
+    const currentYear = new Date().getFullYear()
     const questionsExist = await prisma.question.count({
       where: {
         departmentId: session.user.departmentId,
+        year: currentYear,
         term: term as 'START' | 'END',
         isActive: true,
         isPublished: true
@@ -34,10 +35,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ questions: [], existingSelfComment: '', isSubmitted: false, canEdit: false })
     }
 
-    // Get all published questions for this department and term
+    // Get all published questions for this department, term, and current year
     const questions = await prisma.question.findMany({
       where: {
         departmentId: session.user.departmentId,
+        year: currentYear,
         term: term as 'START' | 'END',
         isActive: true,
         isPublished: true
@@ -48,20 +50,22 @@ export async function GET(request: NextRequest) {
       ]
     })
 
-    // Get existing answers for this teacher and term
+    // Get existing answers for this teacher, term, and current year
     const existingAnswers = await prisma.teacherAnswer.findMany({
       where: {
         teacherId: session.user.id,
+        year: currentYear,
         term: term as 'START' | 'END'
       }
     })
 
-    // Get existing self comment
+    // Get existing self comment for current year
     const selfComment = await prisma.selfComment.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId: session.user.id,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: currentYear
         }
       }
     })

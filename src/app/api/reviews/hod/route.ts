@@ -20,9 +20,10 @@ export async function GET(request: NextRequest) {
       // Get specific review
       const review = await prisma.hodReview.findUnique({
         where: {
-          teacherId_term: {
+          teacherId_term_year: {
             teacherId,
-            term: term as 'START' | 'END'
+            term: term as 'START' | 'END',
+            year: new Date().getFullYear()
           }
         },
         include: {
@@ -96,10 +97,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { teacherId, comment, score, term, scores, questionScores } = body
+    const { teacherId, comment, score, term, scores } = body
     // Block if Dean has finalized for this teacher/term
     const finalized = await prisma.finalReview.findUnique({
-      where: { teacherId_term: { teacherId, term: term as 'START' | 'END' } }
+      where: { teacherId_term_year: { teacherId, term: term as 'START' | 'END', year: new Date().getFullYear() } }
     })
     if (finalized?.submitted) {
       return NextResponse.json({ error: 'Final review already submitted by Dean for this term' }, { status: 400 })
@@ -110,18 +111,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if teacher evaluation is published for this term before allowing HOD reviews
+    const currentYear = new Date().getFullYear()
     const termState = await prisma.termState.findUnique({ 
-      where: { departmentId: session.user.departmentId } 
+      where: { 
+        departmentId_year: {
+          departmentId: session.user.departmentId,
+          year: currentYear
+        }
+      } 
     })
-    const isTermPublished = term === 'START' 
-      ? ((termState as any)?.startTermVisibility === 'PUBLISHED' || termState?.visibility === 'PUBLISHED')
-      : ((termState as any)?.endTermVisibility === 'PUBLISHED' || termState?.visibility === 'PUBLISHED')
-    
-    if (!isTermPublished) {
-      return NextResponse.json({ 
-        error: `${term} term teacher evaluation review access not enabled. Contact admin to publish teacher evaluation access for HOD review.` 
-      }, { status: 403 })
-    }
+    // HOD can always review teachers in their department - no admin permission needed
 
     // Verify teacher belongs to HOD's department
     const teacher = await prisma.user.findUnique({
@@ -143,9 +142,10 @@ export async function POST(request: NextRequest) {
 
     const selfComment = await prisma.selfComment.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
         }
       }
     })
@@ -161,17 +161,19 @@ export async function POST(request: NextRequest) {
     // Normalize HOD scoring structure so downstream dashboards can read totals and breakdowns
     const rubricScores = scores && typeof scores === 'object' ? scores : {}
     const rubricTotal = Object.values(rubricScores).reduce((acc: number, v: any) => acc + (Number(v) || 0), 0)
+    const overallRating = Number(score) || 0
     const structuredScores: any = {
       rubric: rubricScores,
-      questionScores: (questionScores && typeof questionScores === 'object') ? questionScores : {},
-      totalScore: rubricTotal > 0 ? rubricTotal : (Number(score) || 0)
+      totalScore: rubricTotal,
+      overallRating: overallRating
     }
 
     const review = await prisma.hodReview.upsert({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
         }
       },
       update: {
@@ -184,6 +186,7 @@ export async function POST(request: NextRequest) {
       create: {
         teacherId,
         term: term as 'START' | 'END',
+        year: new Date().getFullYear(),
         comments: comment,
         scores: structuredScores,
         submitted: true,

@@ -247,7 +247,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ results: withBands, summary })
   } catch (error) {
-    console.error('Error generating report:', error)
+    
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -56,6 +56,7 @@ interface ReviewFormProps {
       developmentSubtotal: number
       totalScore: number
     }
+    overallRating: number
     submitted: boolean
   }) => void
   onCancel: () => void
@@ -74,6 +75,7 @@ export default function ReviewForm({
   const [comments, setComments] = useState('')
   const [scores, setScores] = useState<{ [key: string]: number }>({})
   const [rubricScores, setRubricScores] = useState<Record<string, number>>({})
+  const [overallRating, setOverallRating] = useState<number>(0)
   const [fetchLoading, setFetchLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -95,6 +97,7 @@ export default function ReviewForm({
             setComments(data.existingReview.comments)
             setScores(data.existingReview.scores?.questionScores || {})
             setRubricScores(data.existingReview.scores?.rubric || {})
+            setOverallRating(data.existingReview.scores?.overallRating || 0)
           } else {
             // Initialize scores with 0 for each question
             const initialScores: { [key: string]: number } = {}
@@ -108,7 +111,7 @@ export default function ReviewForm({
           const errorData = await response.json()
           setError(errorData.error || 'Failed to fetch teacher data')
         }
-      } catch (error) {
+      } catch {
         setError('Error fetching teacher data')
       } finally {
         setFetchLoading(false)
@@ -166,6 +169,7 @@ export default function ReviewForm({
         developmentSubtotal,
         totalScore: rubricTotal,
       },
+      overallRating,
       submitted
     })
   }
@@ -423,6 +427,30 @@ export default function ReviewForm({
                   </div>
                 </div>
               )}
+
+              {/* Overall Rating */}
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-900 mb-3">Overall Performance Rating</h4>
+                <div className="flex items-center gap-4">
+                  <label htmlFor="overallRating" className="block text-sm font-medium text-gray-700">
+                    Overall Rating (1-10 points):
+                  </label>
+                  <input
+                    id="overallRating"
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={overallRating}
+                    onChange={(e) => setOverallRating(parseInt(e.target.value) || 0)}
+                    className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    disabled={!teacherData.canEdit}
+                  />
+                  <span className="text-sm text-gray-500">/ 10</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Rate the teacher's overall performance based on their answers and rubric scores
+                </p>
+              </div>
 
               {/* Comments */}
               <div>

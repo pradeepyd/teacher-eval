@@ -90,12 +90,12 @@ export default function ResultsPage() {
 
   const exportPDF = (teacher: TeacherResult) => {
     // Placeholder for PDF export functionality
-    console.log('Exporting PDF for:', teacher.name)
+    
   }
 
   const exportAllPDF = () => {
     // Placeholder for bulk PDF export
-    console.log('Exporting all PDFs for department:', selectedDept)
+    
   }
 
   const getScoreColor = (score: number) => {

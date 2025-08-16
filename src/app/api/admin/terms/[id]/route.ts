@@ -55,7 +55,7 @@ export async function PUT(
       include: {
         departments: {
           include: {
-            termState: true
+            termStates: true
           }
         }
       }

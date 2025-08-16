@@ -20,9 +20,10 @@ export async function GET(request: NextRequest) {
       // Get specific final review
       const review = await prisma.finalReview.findUnique({
         where: {
-          teacherId_term: {
+          teacherId_term_year: {
             teacherId,
-            term: term as 'START' | 'END'
+            term: term as 'START' | 'END',
+            year: new Date().getFullYear()
           }
         },
         include: {
@@ -115,9 +116,10 @@ export async function POST(request: NextRequest) {
 
     const selfComment = await prisma.selfComment.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
         }
       }
     })
@@ -129,9 +131,10 @@ export async function POST(request: NextRequest) {
     // Check if HOD has reviewed
     const hodReview = await prisma.hodReview.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
         }
       }
     })
@@ -143,9 +146,10 @@ export async function POST(request: NextRequest) {
     // Check if Assistant Dean has reviewed
     const asstReview = await prisma.asstReview.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
         }
       }
     })
@@ -156,7 +160,7 @@ export async function POST(request: NextRequest) {
 
     // Block re-finalization: Dean can finalize only once per teacher/term
     const existingFinal = await prisma.finalReview.findUnique({
-      where: { teacherId_term: { teacherId, term: term as 'START' | 'END' } }
+      where: { teacherId_term_year: { teacherId, term: term as 'START' | 'END', year: new Date().getFullYear() } }
     })
     if (existingFinal?.submitted) {
       return NextResponse.json({ error: 'Final review already submitted for this term' }, { status: 400 })
@@ -171,9 +175,10 @@ export async function POST(request: NextRequest) {
     // Create or update final review
     const review = await prisma.finalReview.upsert({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
         }
       },
       update: {
@@ -187,6 +192,7 @@ export async function POST(request: NextRequest) {
       create: {
         teacherId,
         term: term as 'START' | 'END',
+        year: new Date().getFullYear(),
         finalComment: comment,
         finalScore: score,
         status,
@@ -195,6 +201,69 @@ export async function POST(request: NextRequest) {
         termId: termRecord?.id || null
       }
     })
+
+
+
+    // Check if this is the last teacher to be finalized for this term in this department
+    // If so, mark the term as complete
+    if (teacher.departmentId) {
+      const totalTeachersInDept = await prisma.user.count({
+        where: {
+          role: 'TEACHER',
+          departmentId: teacher.departmentId
+        }
+      })
+
+      const finalizedTeachersInDept = await prisma.finalReview.count({
+        where: {
+          teacher: {
+            departmentId: teacher.departmentId
+          },
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear(),
+          submitted: true
+        }
+      })
+
+      console.log(`Dean API - Term Completion Check:`, {
+        departmentId: teacher.departmentId,
+        term,
+        year: new Date().getFullYear(),
+        totalTeachersInDept,
+        finalizedTeachersInDept,
+        shouldComplete: finalizedTeachersInDept >= totalTeachersInDept
+      })
+
+      // If all teachers in the department are finalized for this term, mark term as complete
+      if (finalizedTeachersInDept >= totalTeachersInDept) {
+        console.log(`Dean API - Marking term as COMPLETE for department ${teacher.departmentId}, term ${term}`)
+        
+        const updateResult = await prisma.termState.updateMany({
+          where: {
+            departmentId: teacher.departmentId,
+            year: new Date().getFullYear()
+          },
+          data: {
+            // Mark the term as complete by setting visibility to COMPLETE
+            ...(term === 'START' ? { startTermVisibility: 'COMPLETE' } : {}),
+            ...(term === 'END' ? { endTermVisibility: 'COMPLETE' } : {}),
+            // Update overall visibility based on term completion
+            ...(term === 'START' ? { 
+              visibility: 'PUBLISHED'  // START term completed, make visible
+            } : {}),
+            ...(term === 'END' ? { 
+              visibility: 'COMPLETE'   // END term completed, mark as complete
+            } : {}),
+            // Keep the activeTerm as is
+          }
+        })
+        
+        console.log(`Dean API - Term completion update result:`, updateResult)
+        console.log(`Term marked as COMPLETE for department ${teacher.departmentId}, term ${term}, year ${new Date().getFullYear()}`)
+      } else {
+        console.log(`Dean API - Not all teachers finalized yet. ${finalizedTeachersInDept}/${totalTeachersInDept} finalized`)
+      }
+    }
 
     return NextResponse.json({ 
       message: 'Dean review submitted successfully',

@@ -24,7 +24,7 @@ export async function PATCH(request: NextRequest) {
     const [questionsCount, existingAnswersCount, selfComment] = await Promise.all([
       prisma.question.count({ where: { departmentId: session.user.departmentId, term: term as 'START' | 'END' } }),
       prisma.teacherAnswer.count({ where: { teacherId: session.user.id, term: term as 'START' | 'END' } }),
-      prisma.selfComment.findUnique({ where: { teacherId_term: { teacherId: session.user.id, term: term as 'START' | 'END' } } }),
+      prisma.selfComment.findUnique({ where: { teacherId_term_year: { teacherId: session.user.id, term: term as 'START' | 'END', year: new Date().getFullYear() } } }),
     ])
     const isSubmitted = questionsCount > 0 && existingAnswersCount === questionsCount && !!selfComment
     if (isSubmitted) {
@@ -43,14 +43,16 @@ export async function PATCH(request: NextRequest) {
     } catch {}
 
     // Upsert each answer (composite unique)
+    const currentYear = new Date().getFullYear()
     await prisma.$transaction(
       answers.map((a: { questionId: string; answer: string }) =>
         prisma.teacherAnswer.upsert({
           where: {
-            teacherId_questionId_term: {
+            teacherId_questionId_term_year: {
               teacherId: session.user.id,
               questionId: a.questionId,
               term: term as 'START' | 'END',
+              year: currentYear,
             },
           },
           update: { answer: a.answer, termId: resolvedTermId },
@@ -58,6 +60,7 @@ export async function PATCH(request: NextRequest) {
             teacherId: session.user.id,
             questionId: a.questionId,
             term: term as 'START' | 'END',
+            year: currentYear,
             answer: a.answer,
             termId: resolvedTermId,
           },

@@ -19,10 +19,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
     }
 
-    // Get teacher's answers for the specified term
+    // Get teacher's answers for the specified term and current year
+    const currentYear = new Date().getFullYear()
     const answers = await prisma.teacherAnswer.findMany({
       where: {
         teacherId: session.user.id,
+        year: currentYear,
         term: term as 'START' | 'END'
       },
       include: {
@@ -35,12 +37,13 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Get self comment for this term
+    // Get self comment for this term and current year
     const selfComment = await prisma.selfComment.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId: session.user.id,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: currentYear
         }
       }
     })
@@ -78,19 +81,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Self comment is required' }, { status: 400 })
     }
 
+    // Teachers can only submit for published questions for current year
+    const currentYear = new Date().getFullYear()
+
     // Block if Dean has finalized for this teacher/term
     const finalized = await prisma.finalReview.findUnique({
-      where: { teacherId_term: { teacherId: session.user.id, term: term as 'START' | 'END' } }
+      where: { teacherId_term_year: { teacherId: session.user.id, term: term as 'START' | 'END', year: currentYear } }
     })
     if (finalized?.submitted) {
       return NextResponse.json({ error: 'Final review already submitted by Dean for this term' }, { status: 400 })
     }
-
-    // Teachers can only submit for published questions
-    // Check if there are published questions available for this term
     const questionsExist = await prisma.question.count({
       where: {
         departmentId: session.user.departmentId,
+        year: currentYear,
         term: term as 'START' | 'END',
         isActive: true,
         isPublished: true
@@ -111,7 +115,7 @@ export async function POST(request: NextRequest) {
       }
     })
     const existingSubmittedComment = await prisma.selfComment.findUnique({
-      where: { teacherId_term: { teacherId: session.user.id, term: term as 'START' | 'END' } },
+      where: { teacherId_term_year: { teacherId: session.user.id, term: term as 'START' | 'END', year: currentYear } },
       select: { submitted: true }
     })
     if (existingAnswers > 0 && existingSubmittedComment?.submitted) {
@@ -121,9 +125,11 @@ export async function POST(request: NextRequest) {
     // Get all questions for this department and term
     const questions = await prisma.question.findMany({
       where: {
-        departmentId: session.user.departmentId,
-        term: term as 'START' | 'END'
-      }
+        departmentId: session.user.departmentId || '',
+        term: term as 'START' | 'END',
+        isActive: true
+      },
+      orderBy: { order: 'asc' }
     })
 
     if (questions.length === 0) {
@@ -161,10 +167,11 @@ export async function POST(request: NextRequest) {
         answers.map((answer: { questionId: string; answer: string }) =>
           tx.teacherAnswer.upsert({
             where: { 
-              teacherId_questionId_term: { 
+              teacherId_questionId_term_year: { 
                 teacherId: session.user.id, 
                 questionId: answer.questionId, 
-                term: term as 'START' | 'END' 
+                term: term as 'START' | 'END',
+                year: currentYear
               } 
             },
             update: {
@@ -177,6 +184,7 @@ export async function POST(request: NextRequest) {
               term: term as 'START' | 'END',
               answer: answer.answer,
               termId: resolvedTermId,
+              year: currentYear
             }
           })
         )
@@ -184,7 +192,13 @@ export async function POST(request: NextRequest) {
 
       // Save self comment
       const savedSelfComment = await tx.selfComment.upsert({
-        where: { teacherId_term: { teacherId: session.user.id, term: term as 'START' | 'END' } },
+        where: { 
+          teacherId_term_year: { 
+            teacherId: session.user.id, 
+            term: term as 'START' | 'END',
+            year: currentYear
+          } 
+        },
         update: { comment: selfComment.trim(), termId: resolvedTermId, submitted: true },
         create: {
           teacherId: session.user.id,
@@ -192,6 +206,7 @@ export async function POST(request: NextRequest) {
           comment: selfComment.trim(),
           submitted: true,
           termId: resolvedTermId,
+          year: currentYear
         }
       })
 
@@ -223,6 +238,8 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Valid term is required' }, { status: 400 })
     }
 
+    const currentYear = new Date().getFullYear()
+
     // Resolve termId
     let resolvedTermId: string | null = null
     try {
@@ -242,12 +259,13 @@ export async function PATCH(request: NextRequest) {
       for (const a of answers) {
         if (!a?.questionId || typeof a?.answer !== 'string') continue
         await prisma.teacherAnswer.upsert({
-          where: {
-            teacherId_questionId_term: {
-              teacherId: session.user.id,
-              questionId: a.questionId,
-              term: term as 'START' | 'END'
-            }
+          where: { 
+            teacherId_questionId_term_year: { 
+              teacherId: session.user.id, 
+              questionId: a.questionId, 
+              term: term as 'START' | 'END',
+              year: currentYear
+            } 
           },
           update: { answer: a.answer, termId: resolvedTermId },
           create: {
@@ -255,7 +273,8 @@ export async function PATCH(request: NextRequest) {
             questionId: a.questionId,
             term: term as 'START' | 'END',
             answer: a.answer,
-            termId: resolvedTermId
+            termId: resolvedTermId,
+            year: currentYear
           }
         })
       }
@@ -265,15 +284,17 @@ export async function PATCH(request: NextRequest) {
     if (typeof selfComment === 'string') {
       await prisma.selfComment.upsert({
         where: {
-          teacherId_term: {
+          teacherId_term_year: {
             teacherId: session.user.id,
-            term: term as 'START' | 'END'
+            term: term as 'START' | 'END',
+            year: currentYear
           }
         },
         update: { comment: selfComment.trim(), termId: resolvedTermId, submitted: false },
         create: {
           teacherId: session.user.id,
           term: term as 'START' | 'END',
+          year: currentYear,
           comment: selfComment.trim(),
           submitted: false,
           termId: resolvedTermId

@@ -27,6 +27,7 @@ export default function HodReviewPage({ params }: PageProps) {
       developmentSubtotal: number
       totalScore: number
     }
+    overallRating: number
     submitted: boolean
   }) => {
     setLoading(true)
@@ -42,6 +43,8 @@ export default function HodReviewPage({ params }: PageProps) {
         body: JSON.stringify({
           teacherId,
           term,
+          comment: data.comments,
+          score: data.overallRating,
           ...data
         })
       })

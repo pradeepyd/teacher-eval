@@ -20,9 +20,10 @@ export async function GET(request: NextRequest) {
       // Get specific review
       const review = await prisma.asstReview.findUnique({
         where: {
-          teacherId_term: {
+          teacherId_term_year: {
             teacherId,
-            term: term as 'START' | 'END'
+            term: term as 'START' | 'END',
+            year: new Date().getFullYear()
           }
         },
         include: {
@@ -86,7 +87,13 @@ export async function POST(request: NextRequest) {
     const { teacherId, comment, score, term } = await request.json()
     // Block if Dean has finalized for this teacher/term
     const finalized = await prisma.finalReview.findUnique({
-      where: { teacherId_term: { teacherId, term: term as 'START' | 'END' } }
+      where: { 
+        teacherId_term_year: { 
+          teacherId, 
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
+        } 
+      }
     })
     if (finalized?.submitted) {
       return NextResponse.json({ error: 'Final review already submitted by Dean for this term' }, { status: 400 })
@@ -115,11 +122,12 @@ export async function POST(request: NextRequest) {
     })
 
     const selfComment = await prisma.selfComment.findUnique({
-      where: {
-        teacherId_term: {
-          teacherId,
-          term: term as 'START' | 'END'
-        }
+      where: { 
+        teacherId_term_year: { 
+          teacherId, 
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
+        } 
       }
     })
 
@@ -129,11 +137,12 @@ export async function POST(request: NextRequest) {
 
     // Check if HOD has reviewed
     const hodReview = await prisma.hodReview.findUnique({
-      where: {
-        teacherId_term: {
-          teacherId,
-          term: term as 'START' | 'END'
-        }
+      where: { 
+        teacherId_term_year: { 
+          teacherId, 
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
+        } 
       }
     })
 
@@ -147,9 +156,10 @@ export async function POST(request: NextRequest) {
     // Create or update Assistant Dean review
     const review = await prisma.asstReview.upsert({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId,
-          term: term as 'START' | 'END'
+          term: term as 'START' | 'END',
+          year: new Date().getFullYear()
         }
       },
       update: {
@@ -162,6 +172,7 @@ export async function POST(request: NextRequest) {
       create: {
         teacherId,
         term: term as 'START' | 'END',
+        year: new Date().getFullYear(),
         comments: comment,
         scores: { totalScore: score },
         submitted: true,

@@ -32,23 +32,66 @@ export async function POST(
       return NextResponse.json({ error: 'This is not an END term' }, { status: 400 })
     }
 
+    const currentYear = new Date().getFullYear()
+    console.log(`Current year: ${currentYear}, Term year: ${term.year}`)
+
     // Activate the END term and update department term states
+    console.log(`Activating END term ${term.id} for ${term.departments.length} departments`)
+    console.log(`Departments:`, term.departments.map(d => ({ id: d.id, name: d.name })))
+    
     await prisma.$transaction(async (tx) => {
       // Term status remains 'END', we just activate it for departments
       // Update department term states to use this END term
       for (const department of term.departments) {
-        await tx.termState.upsert({
-          where: { departmentId: department.id },
-          update: { activeTerm: 'END' },
-          create: {
-            departmentId: department.id,
-            activeTerm: 'END'
+        console.log(`Updating term state for department ${department.id} to activeTerm: END for year ${currentYear}`)
+        
+        // Check if termState already exists
+        const existing = await tx.termState.findUnique({
+          where: { 
+            departmentId_year: {
+              departmentId: department.id,
+              year: currentYear
+            }
           }
         })
+        console.log(`Existing term state for department ${department.id}:`, existing)
+        
+        const result = await tx.termState.upsert({
+          where: { 
+            departmentId_year: {
+              departmentId: department.id,
+              year: currentYear
+            }
+          },
+          update: { 
+            activeTerm: 'END',
+            // Reset visibility fields when switching to END term
+            startTermVisibility: 'DRAFT',
+            endTermVisibility: 'DRAFT',
+            visibility: 'DRAFT'
+          },
+          create: {
+            departmentId: department.id,
+            activeTerm: 'END',
+            year: currentYear,
+            // Initialize visibility fields as DRAFT
+            startTermVisibility: 'DRAFT',
+            endTermVisibility: 'DRAFT',
+            visibility: 'DRAFT'
+          }
+        })
+        console.log(`Term state updated for department ${department.id}:`, result)
       }
     })
+    
+    console.log(`Successfully activated END term ${term.id}`)
 
-    return NextResponse.json({ message: 'Term ended successfully' })
+    return NextResponse.json({ 
+      message: 'Term ended successfully',
+      success: true,
+      termId: resolved.id,
+      activeTerm: 'END'
+    })
   } catch (error) {
     console.error('Error ending term:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

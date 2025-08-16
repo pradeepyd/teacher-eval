@@ -172,14 +172,6 @@ export default function LoginPage() {
               {errors.password && <p className="text-red-500 text-sm mt-1">{errors.password.message}</p>}
             </div>
 
-            <div className="flex items-center justify-between text-sm">
-              <label className="flex items-center gap-2 text-gray-700">
-                <input type="checkbox" className="h-4 w-4 text-primary-600 border-gray-300 rounded" />
-                Remember me
-              </label>
-              <a href="#" className="text-primary-600 hover:text-primary-800">Forgot Password?</a>
-            </div>
-
             <Button
               type="submit"
               className="w-full flex px-4 py-6 items-center border border-transparent justify-center bg-primary-600 hover:bg-primary-700 text-white rounded-lg shadow-sm text-sm font-medium focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"

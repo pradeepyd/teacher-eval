@@ -3,6 +3,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import bcrypt from 'bcrypt'
+import { z } from 'zod'
+
+// Password validation schema
+const passwordSchema = z.string()
+  .min(8, 'Password must be at least 8 characters long')
+  .regex(/[0-9]/, 'Password must contain at least one number')
 
 export async function PUT(
   request: NextRequest,
@@ -12,10 +19,10 @@ export async function PUT(
     const session = await getServerSession(authOptions)
     
     if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 400 })
     }
 
-    const { name, email, role, departmentId } = await request.json()
+    const { name, email, role, departmentId, password } = await request.json()
 
     if (!name || !email || !role) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -43,14 +50,32 @@ export async function PUT(
       return NextResponse.json({ error: 'Department ID is required for non-admin roles' }, { status: 400 })
     }
 
+    // Prepare update data
+    const updateData: any = {
+      name,
+      email,
+      role,
+      departmentId: role === 'ADMIN' ? null : departmentId
+    }
+
+    // Hash password if provided
+    if (password && password.trim()) {
+      // Validate password using Zod schema
+      const passwordValidation = passwordSchema.safeParse(password)
+      if (!passwordValidation.success) {
+        return NextResponse.json({ 
+          error: 'Password validation failed',
+          details: passwordValidation.error.issues.map(issue => issue.message)
+        }, { status: 400 })
+      }
+      
+      const hashedPassword = await bcrypt.hash(password, 12)
+      updateData.password = hashedPassword
+    }
+
     const user = await prisma.user.update({
       where: { id: params.id },
-      data: {
-        name,
-        email,
-        role,
-        departmentId: role === 'ADMIN' ? null : departmentId
-      },
+      data: updateData,
       include: {
         department: true
       }
@@ -58,7 +83,7 @@ export async function PUT(
 
     return NextResponse.json(user)
   } catch (error) {
-    console.error('Error updating user:', error)
+    
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -95,7 +120,7 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'User deleted successfully' })
   } catch (error) {
-    console.error('Error deleting user:', error)
+    
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -16,7 +16,7 @@ export async function GET(_request: NextRequest) {
       include: {
         departments: {
           include: {
-            termState: true
+            termStates: true
           }
         }
       },
@@ -67,6 +67,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid year' }, { status: 400 })
     }
 
+    // Check if a term of the same type already exists for the same departments and year
+    if (Array.isArray(departmentIds) && departmentIds.length > 0) {
+      for (const deptId of departmentIds) {
+        const existingTermState = await prisma.termState.findUnique({
+          where: {
+            departmentId_year: {
+              departmentId: deptId,
+              year: yearNumber
+            }
+          }
+        })
+
+        if (existingTermState) {
+          // Check if the term type already exists and is not completed
+          if (termType === 'START' && existingTermState.startTermVisibility && existingTermState.startTermVisibility !== 'COMPLETE') {
+            return NextResponse.json({ 
+              error: `A START term already exists for department ${deptId} in year ${yearNumber}. Please complete the existing term before creating a new one.` 
+            }, { status: 400 })
+          }
+          
+          if (termType === 'END' && existingTermState.endTermVisibility && existingTermState.endTermVisibility !== 'COMPLETE') {
+            return NextResponse.json({ 
+              error: `An END term already exists for department ${deptId} in year ${yearNumber}. Please complete the existing term before creating a new one.` 
+            }, { status: 400 })
+          }
+        }
+      }
+    }
+
     // Create term with department associations
     // Terms are created directly with their intended status (START or END)
     const term = await prisma.term.create({
@@ -83,11 +112,52 @@ export async function POST(request: NextRequest) {
       include: {
         departments: {
           include: {
-            termState: true
+            termStates: true
           }
         }
       }
     })
+
+    // Auto-set department term states for connected departments (YEAR-WISE)
+    if (Array.isArray(departmentIds) && departmentIds.length > 0) {
+      console.log(`Setting up automatic year-wise term mapping for ${departmentIds.length} departments...`)
+      
+      for (const deptId of departmentIds) {
+        // Create or update the term state for the specific year and term
+        const termState = await prisma.termState.upsert({
+          where: { 
+            departmentId_year: {
+              departmentId: deptId,
+              year: yearNumber
+            }
+          },
+          update: { 
+            activeTerm: termType as 'START' | 'END',
+            // Set the appropriate term visibility to DRAFT
+            ...(termType === 'START' ? { 
+              startTermVisibility: 'DRAFT',
+              // Keep END term visibility as is (don't reset)
+            } : { 
+              endTermVisibility: 'DRAFT',
+              // Keep START term visibility as is (don't reset)
+            })
+          },
+          create: {
+            departmentId: deptId,
+            year: yearNumber,
+            activeTerm: termType as 'START' | 'END',
+            visibility: 'DRAFT',
+            hodVisibility: 'DRAFT',
+            startTermVisibility: 'DRAFT',
+            endTermVisibility: 'DRAFT'
+          }
+        })
+
+        console.log(`✅ Department ${deptId} now has active term: ${termType} for year ${yearNumber}`)
+      }
+      
+      console.log(`🎯 Year-wise automatic term mapping complete! ${departmentIds.length} departments now have ${termType} as active term for year ${yearNumber}`)
+    }
 
     return NextResponse.json(term)
   } catch (error) {

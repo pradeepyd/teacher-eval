@@ -49,6 +49,20 @@ interface Teacher {
   hodScore: TermScoped<number>
   hodQuestionScores?: TermScoped<Record<string, number>>
   hodRubric?: TermScoped<Record<string, number>>
+  receivedHodReviews?: TermScoped<{
+    id: string
+    term: string
+    comments: string
+    scores: any
+    submitted: boolean
+  } | null>
+  receivedAsstReviews?: TermScoped<{
+    id: string
+    term: string
+    comments: string
+    scores: any
+    submitted: boolean
+  } | null>
   asstDeanComment: TermScoped<string> | Record<string, string>
   asstDeanScore: TermScoped<number> | Record<string, number>
   canReview: boolean
@@ -67,6 +81,7 @@ export default function AsstDeanDashboard() {
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null)
   const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
   const [openTeacherId, setOpenTeacherId] = useState<string | null>(null)
+  const [departmentStates, setDepartmentStates] = useState<Record<string, any>>({})
   // removed unused state
 
   // HOD evaluation state
@@ -100,10 +115,35 @@ export default function AsstDeanDashboard() {
       }
       const data = await response.json()
       // public endpoint returns an array; fallback supports { departments } shape
-      setDepartments(Array.isArray(data) ? data : (data.departments || []))
+      const deptList = Array.isArray(data) ? data : (data.departments || [])
+      setDepartments(deptList)
+      
+      // Fetch term states for all departments
+      await fetchDepartmentStates(deptList)
     } catch (error) {
-      console.error('Error fetching departments:', error)
+
       setError('Failed to load departments')
+    }
+  }
+
+  // Fetch department states for term completion status
+  const fetchDepartmentStates = async (deptList: Department[]) => {
+    try {
+      const states: Record<string, any> = {}
+      for (const dept of deptList) {
+        try {
+          const response = await fetch(`/api/departments/${dept.id}/term-state`)
+          if (response.ok) {
+            const data = await response.json()
+            states[dept.id] = data
+          }
+        } catch (error) {
+  
+        }
+      }
+      setDepartmentStates(states)
+    } catch (error) {
+      
     }
   }
 
@@ -121,8 +161,10 @@ export default function AsstDeanDashboard() {
       }
       const data = await response.json()
       setTeachers(data.teachers || [])
+      
+
     } catch (error) {
-      console.error('Error fetching teachers:', error)
+
       setError('Failed to load teachers')
       toast.error('Failed to load teachers')
     } finally {
@@ -172,10 +214,32 @@ export default function AsstDeanDashboard() {
       setSuccess('Review submitted successfully!')
       toast.success('Review submitted successfully!')
       
-      // Update local state
+      // Update local state to reflect the new review submission
       setTeachers(prev => prev.map(t => 
         t.id === teacherId 
-          ? { ...t, status: 'REVIEWED', canReview: false }
+          ? { 
+              ...t, 
+              // Update the receivedAsstReviews to show the review as submitted
+              receivedAsstReviews: {
+                ...(t.receivedAsstReviews || {}),
+                [activeTerm as 'START' | 'END']: {
+                  id: `temp-${Date.now()}`, // Temporary ID since we don't have the actual DB ID
+                  term: activeTerm as 'START' | 'END',
+                  comments: comment.trim(),
+                  scores: { totalScore: score },
+                  submitted: true
+                }
+              },
+              // Also update the comment and score fields for consistency
+              asstDeanComment: {
+                ...(t.asstDeanComment as any),
+                [activeTerm as 'START' | 'END']: comment.trim()
+              },
+              asstDeanScore: {
+                ...(t.asstDeanScore as any),
+                [activeTerm as 'START' | 'END']: score
+              }
+            } as Teacher
           : t
       ))
       
@@ -183,7 +247,7 @@ export default function AsstDeanDashboard() {
       setSelectedTeacher(null)
       setOpenTeacherId(null)
     } catch (error) {
-      console.error('Error submitting review:', error)
+
       const msg = error instanceof Error ? error.message : 'Failed to submit review'
       setError(msg)
       toast.error(msg)
@@ -222,6 +286,21 @@ export default function AsstDeanDashboard() {
     }
   }
 
+  // Helper function to get teacher status for current term
+  const getTeacherStatusForTerm = (teacher: Teacher, term: 'START' | 'END' | null) => {
+    if (!term) return 'PENDING'
+    
+    // Check if there's a submitted review in the database for this term
+    // We need to check if the review was actually submitted, not just if the form has data
+    const hasSubmittedReview = teacher.receivedAsstReviews && 
+      teacher.receivedAsstReviews[term as keyof typeof teacher.receivedAsstReviews]?.submitted === true
+    
+    if (hasSubmittedReview) {
+      return 'REVIEWED'
+    }
+    return 'PENDING'
+  }
+
   // HOD evaluation: submit one HOD review
   const submitHodReview = async (hod: HodItem) => {
     if (!hod.comments || hod.comments.trim().length === 0) {
@@ -232,6 +311,23 @@ export default function AsstDeanDashboard() {
     setHodSubmittingId(hod.id)
     setError(null)
     setSuccess(null)
+    
+    // Calculate totalScore from rubric scores (0-100 percentage)
+    let calculatedTotalScore = null
+    if (hod.rubric && Object.keys(hod.rubric).length > 0) {
+      const scores = hod.rubric as Record<string, number>
+      const prof = Object.keys(scores).filter(k => k.startsWith('[Professionalism]'))
+      const leader = Object.keys(scores).filter(k => k.startsWith('[Leadership]'))
+      const dev = Object.keys(scores).filter(k => k.startsWith('[Development]'))
+      const service = Object.keys(scores).filter(k => k.startsWith('[Service]'))
+      
+      const sum = (keys: string[]) => keys.reduce((acc, k) => acc + (scores[k] || 0), 0)
+      const raw = sum(prof) + sum(leader) + sum(dev) + sum(service)
+      const max = (prof.length + leader.length + dev.length + service.length) * 5
+      
+      calculatedTotalScore = max > 0 ? Math.round((raw / max) * 100) : null
+    }
+    
     try {
       const res = await fetch('/api/reviews/asst-dean/hod', {
         method: 'POST',
@@ -241,7 +337,7 @@ export default function AsstDeanDashboard() {
           term: hodTerm,
           comments: hod.comments.trim(),
           scores: hod.rubric || {},
-          totalScore: null,
+          totalScore: calculatedTotalScore,
         }),
       })
       if (!res.ok) {
@@ -326,6 +422,8 @@ export default function AsstDeanDashboard() {
     }
   }, [session, hodTerm])
 
+
+
   if (!session?.user) {
     return (
       <RoleGuard allowedRoles={['ASST_DEAN']}>
@@ -398,8 +496,23 @@ export default function AsstDeanDashboard() {
                 </Select>
 
                 <div className="text-sm text-gray-700 flex items-center gap-2">
-                  <span className="font-medium">Active Term:</span>
-                  <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border">{activeTerm || 'Not Set'}</span>
+                  <span className="font-medium">Term Status:</span>
+                  {(() => {
+                    if (!activeTerm) return <span className="px-2 py-0.5 rounded bg-gray-50 text-gray-700 border">Not Set</span>
+                    
+                    // Check if current term is completed
+                    const currentTerm = activeTerm
+                    const termState = departmentStates[selectedDept]
+                    const isCompleted = currentTerm === 'START' 
+                      ? termState?.startTermVisibility === 'COMPLETE'
+                      : termState?.endTermVisibility === 'COMPLETE'
+                    
+                    if (isCompleted) {
+                      return <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-700 border">Completed: {currentTerm}</span>
+                    }
+                    
+                    return <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border">Active: {currentTerm}</span>
+                  })()}
                 </div>
               </div>
             </CardContent>
@@ -421,6 +534,7 @@ export default function AsstDeanDashboard() {
           {selectedDept && !loading && teachers.length > 0 && (
             <div className="space-y-4">
               <h2 className="text-xl font-semibold">Teachers to Review</h2>
+
               {teachers.map((teacher) => (
                 <Card key={teacher.id}>
                   <CardHeader>
@@ -433,14 +547,14 @@ export default function AsstDeanDashboard() {
                         </div>
                       </div>
                       <Badge
-                        variant={teacher.status === 'REVIEWED' ? 'default' : 'secondary'}
+                        variant={getTeacherStatusForTerm(teacher, activeTerm) === 'REVIEWED' ? 'default' : 'secondary'}
                         className={
-                          teacher.status === 'REVIEWED'
+                          getTeacherStatusForTerm(teacher, activeTerm) === 'REVIEWED'
                             ? 'bg-emerald-100 text-emerald-700'
                             : 'bg-amber-100 text-amber-700'
                         }
                       >
-                        {teacher.status === 'REVIEWED' ? 'Completed' : 'Pending'}
+                        {getTeacherStatusForTerm(teacher, activeTerm) === 'REVIEWED' ? 'Completed' : 'Pending'}
                       </Badge>
                     </div>
                   </CardHeader>
@@ -458,50 +572,112 @@ export default function AsstDeanDashboard() {
                             
                               <TabsContent value="hod-comments" className="space-y-4">
                               <div className="p-4 bg-gray-50 rounded-lg">
-                                <h4 className="font-medium mb-2">HOD Comments:</h4>
-                                  <p className="text-sm text-gray-700">{(teacher.hodComment as any)?.[activeTerm || 'START'] || 'No comments available'}</p>
-                                <div className="mt-2">
-                                  <span className="text-sm font-medium">Total HOD Score: </span>
-                                    <span className="text-sm text-gray-700">{(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}</span>
-                                </div>
-                                {teacher.hodRubric && (
-                                  <div className="mt-4 space-y-3">
-                                    <div className="text-sm font-semibold">Rubric Breakdown</div>
-                                    {(() => {
-                                      const rubric: Record<string, number> = (teacher.hodRubric as any)?.[activeTerm || 'START'] || {}
-                                      const grouped: Record<string, { label: string; value: number }[]> = {}
-                                      Object.entries(rubric).forEach(([key, val]) => {
-                                        const match = /^\[(.*?)\]\s*(.*)$/.exec(key)
-                                        const category = match ? match[1] : 'Other'
-                                        const label = match ? match[2] : key
-                                        if (!grouped[category]) grouped[category] = []
-                                        grouped[category].push({ label, value: Number(val) || 0 })
-                                      })
-                                      const categories = Object.keys(grouped)
-                                      if (categories.length === 0) {
-                                        return <div className="text-sm text-gray-500">No rubric data</div>
+                                <h4 className="font-medium mb-2">HOD Evaluation:</h4>
+                                <div className="space-y-3">
+                                  <div>
+                                    <span className="text-sm font-medium">Comments: </span>
+                                    <p className="text-sm text-gray-700 mt-1">{(teacher.hodComment as any)?.[activeTerm || 'START'] || 'No comments available'}</p>
+                                  </div>
+                                  
+                                  <div>
+                                    <span className="text-sm font-medium">HOD Review Status: </span>
+                                    <span className="text-sm text-gray-700">
+                                      {(() => {
+                                        const hodReview = (teacher as any).receivedHodReviews?.[activeTerm || 'START']
+                                        return hodReview ? 'Completed' : 'Not Available'
+                                      })()}
+                                    </span>
+                                  </div>
+
+                                                                     {/* HOD Complete Score Breakdown */}
+                                   {(() => {
+                                     // Try to get HOD review data from the new structure
+                                     const hodReview = (teacher as any).receivedHodReviews?.[activeTerm || 'START']
+                                     if (!hodReview?.scores) {
+                                      // Fallback to old structure
+                                      if (teacher.hodRubric) {
+                                        const rubric: Record<string, number> = (teacher.hodRubric as any)?.[activeTerm || 'START'] || {}
+                                        const grouped: Record<string, { label: string; value: number }[]> = {}
+                                        Object.entries(rubric).forEach(([key, val]) => {
+                                          const match = /^\[(.*?)\]\s*(.*)$/.exec(key)
+                                          const category = match ? match[1] : 'Other'
+                                          const label = match ? match[2] : key
+                                          if (!grouped[category]) grouped[category] = []
+                                          grouped[category].push({ label, value: Number(val) || 0 })
+                                        })
+                                        const categories = Object.keys(grouped)
+                                        if (categories.length === 0) {
+                                          return <div className="text-sm text-gray-500">No rubric data</div>
+                                        }
+                                        return (
+                                          <div className="space-y-4">
+                                            <div className="text-sm font-semibold text-green-700">Rubric Scores (1-5 points each):</div>
+                                            {categories.map((cat) => (
+                                              <div key={cat} className="border rounded p-3 bg-green-50">
+                                                <div className="text-sm font-medium mb-2 text-green-800">{cat}</div>
+                                                <div className="space-y-1">
+                                                  {grouped[cat].map((item) => (
+                                                    <div key={item.label} className="flex items-center justify-between text-sm">
+                                                      <span className="text-gray-700">{item.label}</span>
+                                                      <span className="px-2 py-1 rounded bg-green-100 text-green-800 font-medium">{item.value}/5</span>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                                <div className="mt-2 text-xs text-green-600">Subtotal: {grouped[cat].reduce((a, b) => a + b.value, 0)}</div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )
                                       }
+                                      return null
+                                    }
+                                    
+                                    try {
+                                      const scores = typeof hodReview.scores === 'string' ? JSON.parse(hodReview.scores) : hodReview.scores
+                                      
                                       return (
                                         <div className="space-y-4">
-                                          {categories.map((cat) => (
-                                            <div key={cat} className="border rounded p-3">
-                                              <div className="text-sm font-medium mb-2">{cat}</div>
-                                              <div className="space-y-1">
-                                                {grouped[cat].map((item) => (
-                                                  <div key={item.label} className="flex items-center justify-between text-sm">
-                                                    <span className="text-gray-700">{item.label}</span>
-                                                    <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800">{item.value}</span>
+                                          {/* Rubric Scores (1-5) */}
+                                          {scores.rubric && typeof scores.rubric === 'object' && Object.keys(scores.rubric).length > 0 && (
+                                            <div>
+                                              <span className="text-sm font-medium text-green-700">Rubric Scores (1-5 points each):</span>
+                                              <div className="mt-2 space-y-2">
+                                                {Object.entries(scores.rubric).map(([key, value]) => (
+                                                  <div key={key} className="flex items-center justify-between text-xs bg-green-50 p-2 rounded">
+                                                    <span className="text-gray-700 flex-1 mr-2">{key.replace(/\[(.*?)\]/g, (match, content) => `[${content.toUpperCase()}]`)}</span>
+                                                    <span className="px-1 py-1 rounded bg-green-100 text-green-800 font-medium">{String(value)}/5</span>
                                                   </div>
                                                 ))}
                                               </div>
-                                              <div className="mt-2 text-xs text-gray-600">Subtotal: {grouped[cat].reduce((a, b) => a + b.value, 0)}</div>
                                             </div>
-                                          ))}
+                                          )}
+
+                                          {/* Performance Summary */}
+                                          <div className="mt-3 p-3 bg-yellow-50 rounded border border-yellow-200">
+                                            <div className="text-sm font-medium text-yellow-800 mb-2">Performance Summary:</div>
+                                            <div className="space-y-1 text-xs">
+                                              <div className="flex justify-between">
+                                                <span>Rubric Performance:</span>
+                                                <span className="font-medium">{scores.totalScore} points</span>
+                                              </div>
+                                              <div className="flex justify-between">
+                                                <span>Overall Rating:</span>
+                                                <span className="font-medium">{(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}/10</span>
+                                              </div>
+                                            </div>
+                                          </div>
                                         </div>
                                       )
-                                    })()}
-                                  </div>
-                                )}
+                                    } catch (e: any) {
+                                      return (
+                                        <div>
+                                          <span className="text-sm font-medium text-red-600">Error parsing scores: </span>
+                                          <span className="text-xs text-gray-500">{e.message}</span>
+                                        </div>
+                                      )
+                                    }
+                                  })()}
+                                </div>
                               </div>
                             </TabsContent>
                             
@@ -578,7 +754,7 @@ export default function AsstDeanDashboard() {
                                 {teacher.canReview && (
                                   <Button 
                                     onClick={() => handleSubmit(teacher)}
-                                    disabled={teacher.status === 'REVIEWED' || submitting || !teacher.canReview}
+                                    disabled={getTeacherStatusForTerm(teacher, activeTerm) === 'REVIEWED' || submitting || !teacher.canReview}
                                     className="w-full bg-blue-600 hover:bg-blue-700"
                                   >
                                     {submitting ? (

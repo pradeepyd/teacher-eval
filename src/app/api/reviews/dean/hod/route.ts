@@ -30,18 +30,40 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    // Enforce HOD evaluation publish gate
-    const deptIds = Array.from(new Set(hods.map(h => h.department?.id).filter(Boolean))) as string[]
-    const termStates = await prisma.termState.findMany({ where: { departmentId: { in: deptIds } } })
-    const deptIdToGate = new Map(termStates.map((s: any) => [s.departmentId, s]))
-    const filtered = hods.filter(h => {
-      const s: any = h.department ? deptIdToGate.get(h.department.id) : null
-      return s && s.activeTerm === term && (s.hodVisibility === 'PUBLISHED')
-    })
+    // HODs can always be evaluated by Dean - no admin permission needed
+    const filtered = hods.filter(h => h.department?.id)
 
-    return NextResponse.json({ hods: filtered })
+    // Calculate totalScore for each review based on rubric scores
+    const hodsWithCalculatedScores = filtered.map(hod => ({
+      ...hod,
+      hodPerformanceReviewsReceived: hod.hodPerformanceReviewsReceived.map(review => {
+        let calculatedTotalScore = review.totalScore
+        
+        // If no totalScore exists, calculate it from the rubric scores
+        if (calculatedTotalScore === null && review.scores && typeof review.scores === 'object') {
+          const scores = review.scores as Record<string, number>
+          const prof = Object.keys(scores).filter(k => k.startsWith('[Professionalism]'))
+          const leader = Object.keys(scores).filter(k => k.startsWith('[Leadership]'))
+          const dev = Object.keys(scores).filter(k => k.startsWith('[Development]'))
+          const service = Object.keys(scores).filter(k => k.startsWith('[Service]'))
+          
+          const sum = (keys: string[]) => keys.reduce((acc, k) => acc + (scores[k] || 0), 0)
+          const raw = sum(prof) + sum(leader) + sum(dev) + sum(service)
+          const max = (prof.length + leader.length + dev.length + service.length) * 5
+          
+          calculatedTotalScore = max > 0 ? Math.round((raw / max) * 100) : null
+        }
+        
+        return {
+          ...review,
+          totalScore: calculatedTotalScore
+        }
+      })
+    }))
+
+    return NextResponse.json({ hods: hodsWithCalculatedScores })
   } catch (e) {
-    console.error('Error loading HOD performance for Dean:', e)
+    
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -54,48 +76,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { hodId, term, comments, scores, totalScore } = await request.json()
+    const { hodId, term, comments, totalScore, promoted } = await request.json()
     if (!hodId || !term || !['START', 'END'].includes(term)) {
       return NextResponse.json({ error: 'hodId and valid term are required' }, { status: 400 })
     }
 
-    // Normalize rubric to a /100 total if rubric present
+    // Use the provided totalScore or default to null
     let computedTotal = typeof totalScore === 'number' ? totalScore : null
-    if (scores && typeof scores === 'object' && !Number.isFinite(computedTotal)) {
-      const s = scores as Record<string, number>
-      const prof = Object.keys(s).filter(k => k.startsWith('[Professionalism]'))
-      const leader = Object.keys(s).filter(k => k.startsWith('[Leadership]'))
-      const dev = Object.keys(s).filter(k => k.startsWith('[Development]'))
-      const service = Object.keys(s).filter(k => k.startsWith('[Service]'))
-      const sum = (keys: string[]) => keys.reduce((acc, k) => acc + (s[k] || 0), 0)
-      const raw = sum(prof) + sum(leader) + sum(dev) + sum(service)
-      const max = (prof.length + leader.length + dev.length + service.length) * 5
-      computedTotal = max > 0 ? Math.round((raw / max) * 100) : null
-    }
 
     const review = await prisma.hodPerformanceReview.upsert({
-      where: { hodId_term_reviewerId: { hodId, term, reviewerId: session.user.id } as any },
+      where: { hodId_term_year_reviewerId: { hodId, term, year: new Date().getFullYear(), reviewerId: session.user.id } },
       update: {
         reviewerId: session.user.id,
         comments: comments ?? '',
-        scores: scores ?? {},
+        scores: {},
         totalScore: computedTotal,
+        status: promoted ? 'PROMOTED' : 'ON_HOLD',
         submitted: true,
       },
       create: {
         hodId,
         term,
+        year: new Date().getFullYear(),
         reviewerId: session.user.id,
         comments: comments ?? '',
-        scores: scores ?? {},
+        scores: {},
         totalScore: computedTotal,
+        status: promoted ? 'PROMOTED' : 'ON_HOLD',
         submitted: true,
       },
     })
 
     return NextResponse.json({ review })
   } catch (e) {
-    console.error('Error submitting Dean HOD review:', e)
+    
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

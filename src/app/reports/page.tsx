@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import RoleGuard from '@/components/RoleGuard'
@@ -105,7 +105,7 @@ export default function ReportsPage() {
       const data = await response.json()
       setDepartments(data)
     } catch (error) {
-      console.error('Error fetching departments:', error)
+
       setError('Failed to load departments')
       toast.error('Failed to load departments')
     }
@@ -133,13 +133,10 @@ export default function ReportsPage() {
 
       const data = await response.json()
       setResultsData(data)
-      // Only show success if user explicitly generated via button
-      if (manualTriggerRef.current) {
-        setSuccess('Report generated successfully!')
-        toast.success('Report generated successfully!')
-      }
+      setSuccess('Report refreshed successfully!')
+      toast.success('Report refreshed successfully!')
     } catch (error) {
-      console.error('Error fetching results:', error)
+
       const msg = error instanceof Error ? error.message : 'Failed to fetch results'
       setError(msg)
       toast.error(msg)
@@ -148,95 +145,48 @@ export default function ReportsPage() {
     }
   }
 
-  // Export to CSV
-  const exportToCSV = async (e?: React.MouseEvent) => {
-    e?.preventDefault()
-    e?.stopPropagation()
-    setExporting(true)
-    setError(null)
+  // Real-time status tracking
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date())
+  const [isRealTime, setIsRealTime] = useState(true)
 
-    try {
-      const params = new URLSearchParams()
-      if (selectedDepartment !== 'ALL') params.append('departmentId', selectedDepartment)
-      if (selectedRole !== 'ALL') params.append('role', selectedRole)
-      if (selectedYear !== 'ALL') params.append('year', selectedYear)
-      params.append('format', 'csv')
+  // Manual refresh function
+  const handleManualRefresh = () => {
+    fetchResults().finally(() => { 
+      setLastRefreshTime(new Date())
+    })
+  }
 
-      const response = await fetch(`/api/reports/results?${params}`)
-      
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to export CSV')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `teacher-evaluation-results-${new Date().toISOString().split('T')[0]}.csv`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-      
-      setSuccess('CSV exported successfully!')
-      toast.success('CSV exported successfully!')
-    } catch (error) {
-      console.error('Error exporting CSV:', error)
-      const msg = error instanceof Error ? error.message : 'Failed to export CSV'
-      setError(msg)
-      toast.error(msg)
-    } finally {
-      setExporting(false)
+  // Get real-time status indicators
+  const getStatusIndicator = (status: string) => {
+    switch (status) {
+      case 'PROMOTED': return '🟢'
+      case 'ON_HOLD': return '🟡'
+      case 'NEEDS_IMPROVEMENT': return '🔴'
+      case 'PENDING': return '⚪'
+      default: return '⚪'
     }
   }
 
-  // Export to PDF
-  const exportToPDF = async (e?: React.MouseEvent) => {
-    e?.preventDefault()
-    e?.stopPropagation()
-    setExporting(true)
-    setError(null)
+  // Calculate real-time metrics
+  const getRealTimeMetrics = () => {
+    if (!resultsData) return null
+    
+    const totalTeachers = resultsData.results.length
+    const completedEvaluations = resultsData.results.filter(r => 
+      Object.values(r.terms).some((t: any) => t.hasSubmitted)
+    ).length
+    const pendingEvaluations = totalTeachers - completedEvaluations
+    const promotedCount = resultsData.results.filter(r => 
+      Object.values(r.terms).some((t: any) => t.status === 'PROMOTED')
+    ).length
 
-    try {
-      const params = new URLSearchParams()
-      if (selectedDepartment !== 'ALL') params.append('departmentId', selectedDepartment)
-      if (selectedRole !== 'ALL') params.append('role', selectedRole)
-      if (selectedYear !== 'ALL') params.append('year', selectedYear)
-      params.append('format', 'pdf')
-
-      const response = await fetch(`/api/reports/results?${params}`)
-      
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to export PDF')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `teacher-evaluation-results-${new Date().toISOString().split('T')[0]}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-      
-      setSuccess('PDF exported successfully!')
-      toast.success('PDF exported successfully!')
-    } catch (error) {
-      console.error('Error exporting PDF:', error)
-      const msg = error instanceof Error ? error.message : 'Failed to export PDF'
-      setError(msg)
-      toast.error(msg)
-    } finally {
-      setExporting(false)
+    return {
+      totalTeachers,
+      completedEvaluations,
+      pendingEvaluations,
+      promotedCount,
+      completionRate: totalTeachers > 0 ? Math.round((completedEvaluations / totalTeachers) * 100) : 0
     }
-  }
-
-  // Print results
-  const printResults = () => {
-    window.print()
   }
 
   // Get status color
@@ -256,8 +206,6 @@ export default function ReportsPage() {
   }
 
   // Load data on component mount
-  // Track manual trigger to avoid showing success on first load
-  const manualTriggerRef = { current: false } as { current: boolean }
 
   useEffect(() => {
     const role = (session?.user as any)?.role as string | undefined
@@ -323,7 +271,7 @@ export default function ReportsPage() {
           </Card>
         </div>
 
-        {/* Toasts replace banners for success/error */}
+
 
         <div className="space-y-6">
           {/* Filters */}
@@ -400,48 +348,29 @@ export default function ReportsPage() {
               </div>
 
               <div className="flex justify-between items-center mt-4">
-                <Button onClick={() => { manualTriggerRef.current = true; fetchResults().finally(() => { manualTriggerRef.current = false }) }} disabled={loading}>
+                <Button onClick={handleManualRefresh} disabled={loading}>
                   {loading ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Loading...
+                      Refreshing...
                     </>
                   ) : (
-                    'Generate Report'
+                    '🔄 Refresh Data'
                   )}
                 </Button>
 
-                {/* Export Actions */}
-                {resultsData && (
-                  <div className="flex space-x-2">
-                    <Button variant="outline" onClick={printResults} disabled={exporting}>
-                      🖨️ Print
-                    </Button>
-                    <Button type="button" variant="outline" onClick={(e) => exportToCSV(e)} disabled={exporting}>
-                      {exporting ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                          Exporting...
-                        </>
-                      ) : (
-                        '📊 Export CSV'
-                      )}
-                    </Button>
-                    <Button type="button" variant="outline" onClick={(e) => exportToPDF(e)} disabled={exporting}>
-                      {exporting ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                          Exporting...
-                        </>
-                      ) : (
-                        <>
-                          <FileDown className="h-4 w-4 mr-2" />
-                          Export PDF
-                        </>
-                      )}
-                    </Button>
+                {/* Status Info */}
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm text-gray-600">
+                      Real-time data
+                    </span>
                   </div>
-                )}
+                  <div className="text-xs text-gray-500">
+                    Last updated: {lastRefreshTime.toLocaleTimeString()}
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -453,35 +382,46 @@ export default function ReportsPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <BarChart3 className="h-5 w-5" />
-                    Report Summary
+                    Live Report Summary
                   </CardTitle>
+                                     <div className="flex items-center space-x-2">
+                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                     <span className="text-xs text-gray-500">
+                       Real-time Data
+                     </span>
+                   </div>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">{resultsData.summary.totalTeachers}</div>
+                    <div className="text-2xl font-bold text-blue-600">{getRealTimeMetrics()?.totalTeachers || 0}</div>
                     <div className="text-sm text-gray-600">Total Teachers</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{resultsData.summary.departmentsIncluded.length}</div>
-                    <div className="text-sm text-gray-600">Departments</div>
+                    <div className="text-2xl font-bold text-green-600">{getRealTimeMetrics()?.completedEvaluations || 0}</div>
+                    <div className="text-sm text-gray-600">Completed</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-600">{resultsData.summary.termsIncluded.length}</div>
-                    <div className="text-sm text-gray-600">Terms Included</div>
+                    <div className="text-2xl font-bold text-purple-600">{getRealTimeMetrics()?.pendingEvaluations || 0}</div>
+                    <div className="text-sm text-gray-600">Pending</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-orange-600">
-                      {resultsData.results.filter(r => 
-                        Object.values(r.terms).some((t: any) => t.status === 'PROMOTED')
-                      ).length}
-                    </div>
+                    <div className="text-2xl font-bold text-orange-600">{getRealTimeMetrics()?.promotedCount || 0}</div>
                     <div className="text-sm text-gray-600">Promoted</div>
                   </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-indigo-600">{getRealTimeMetrics()?.completionRate || 0}%</div>
+                    <div className="text-sm text-gray-600">Completion Rate</div>
+                  </div>
                 </div>
-                <div className="mt-4 text-xs text-gray-500">
-                  Generated by {resultsData.summary.generatedBy} on {new Date(resultsData.summary.generatedAt).toLocaleString()}
+                <div className="mt-4 flex items-center justify-between">
+                  <div className="text-xs text-gray-500">
+                    Generated by {resultsData.summary.generatedBy} on {new Date(resultsData.summary.generatedAt).toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Last refreshed: {lastRefreshTime.toLocaleTimeString()}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -491,63 +431,71 @@ export default function ReportsPage() {
           {resultsData && paginatedResults.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Teacher Evaluation Results</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Teacher Evaluation Results</CardTitle>
+                                     <div className="flex items-center space-x-2">
+                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                     <span className="text-xs text-gray-500">
+                       Real-time Data
+                     </span>
+                   </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Teacher</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Year</TableHead>
-                      <TableHead>HOD Score</TableHead>
-                      <TableHead>Asst Dean Score</TableHead>
-                      <TableHead>Total Score</TableHead>
-                      <TableHead>Dean Score</TableHead>
-                      <TableHead>Performance</TableHead>
-                      <TableHead>Promoted</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                                 <Table>
+                   <TableHeader>
+                     <TableRow>
+                       <TableHead>Teacher</TableHead>
+                       <TableHead>Department</TableHead>
+                       <TableHead>Role</TableHead>
+                       <TableHead>Year</TableHead>
+                       <TableHead>Performance</TableHead>
+                       <TableHead>Promoted</TableHead>
+                       <TableHead>Status</TableHead>
+                     </TableRow>
+                   </TableHeader>
                   <TableBody>
                     {paginatedResults.map((teacher) => 
                       Object.entries(teacher.terms).map(([termKey, termData]: [string, any]) => {
                         if (!termData.hasSubmitted) return null
                         
                         return (
-                          <TableRow key={`${teacher.id}-${termKey}`}>
-                            <TableCell>
-                              <div>
-                                <div className="font-medium">{teacher.name}</div>
-                                <div className="text-sm text-gray-500">{teacher.email}</div>
-                              </div>
-                            </TableCell>
-                            <TableCell>{teacher.department}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{teacher.role}</Badge>
-                            </TableCell>
-                            <TableCell>{teacher.year}</TableCell>
-                            <TableCell>{termData.hodScore}/{termData.hodMaxScore}</TableCell>
-                            <TableCell>{termData.asstScore}/{termData.asstMaxScore}</TableCell>
-                            <TableCell className="font-medium text-blue-600">
-                              {termData.totalCombinedScore || (termData.hodScore + termData.asstScore)}/{termData.maxPossibleScore}
-                            </TableCell>
-                            <TableCell>{termData.finalScore}/{termData.deanMaxScore || 100}</TableCell>
-                            <TableCell>
-                              {getPerformancePercentage(termData.totalCombinedScore || (termData.hodScore + termData.asstScore), termData.maxPossibleScore)}%
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={termData.promoted ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                                {termData.promoted ? '✓ YES' : '✗ NO'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={getStatusColor(termData.status)}>
-                                {termData.status.replace('_', ' ')}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
+                                                     <TableRow key={`${teacher.id}-${termKey}`}>
+                             <TableCell>
+                               <div>
+                                 <div className="font-medium">{teacher.name}</div>
+                                 <div className="text-sm text-gray-500">{teacher.email}</div>
+                               </div>
+                             </TableCell>
+                             <TableCell>{teacher.department}</TableCell>
+                             <TableCell>
+                               <Badge variant="outline">{teacher.role}</Badge>
+                             </TableCell>
+                             <TableCell>{teacher.year}</TableCell>
+                             <TableCell>
+                               <div className="text-center">
+                                 <div className="text-lg font-semibold text-blue-600">
+                                   {getPerformancePercentage(termData.totalCombinedScore || (termData.hodScore + termData.asstScore), termData.maxPossibleScore)}%
+                                 </div>
+                                 <div className="text-xs text-gray-500">
+                                   {termData.totalCombinedScore || (termData.hodScore + termData.asstScore)}/{termData.maxPossibleScore}
+                                 </div>
+                               </div>
+                             </TableCell>
+                             <TableCell>
+                               <Badge className={termData.promoted ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                                 {termData.promoted ? '✓ YES' : '✗ NO'}
+                               </Badge>
+                             </TableCell>
+                             <TableCell>
+                               <div className="flex items-center space-x-2">
+                                 <span className="text-lg">{getStatusIndicator(termData.status)}</span>
+                                 <Badge className={getStatusColor(termData.status)}>
+                                   {termData.status.replace('_', ' ')}
+                                 </Badge>
+                               </div>
+                             </TableCell>
+                           </TableRow>
                         )
                       })
                     )}

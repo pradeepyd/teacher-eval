@@ -70,32 +70,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid term' }, { status: 400 })
     }
 
-    // Check if the current term matches the department's active term
+    // Check if the current term matches the department's active term for current year
+    const currentYear = new Date().getFullYear()
     const termState = await prisma.termState.findUnique({
-      where: { departmentId: session.user.departmentId }
+      where: { 
+        departmentId_year: {
+          departmentId: session.user.departmentId,
+          year: currentYear
+        }
+      }
     })
 
-    if (!termState || termState.activeTerm !== term) {
+    if (!termState) {
       return NextResponse.json({ 
-        error: `Cannot create questions for ${term} term. Current active term is ${termState?.activeTerm || 'not set'}` 
+        error: 'Department term state not configured. Please contact admin to set up terms for your department.' 
+      }, { status: 400 })
+    }
+
+    if (termState.activeTerm !== term) {
+      return NextResponse.json({ 
+        error: `Cannot create questions for ${term} term. Current active term is ${termState.activeTerm}. Questions can only be created for the active term.` 
       }, { status: 400 })
     }
 
     const newQuestion = await prisma.question.create({
       data: {
         departmentId: session.user.departmentId,
+        year: new Date().getFullYear(), // Current academic year
         question: question.trim(),
         type,
         term,
         options: (type === 'MCQ' || type === 'CHECKBOX') ? options || [] : [],
         optionScores: (type === 'MCQ' || type === 'CHECKBOX') ? optionScores || [] : [],
         isActive: true,
+        isPublished: false,
         order: order || 0
       },
       include: {
         department: true
       }
     })
+
+
 
     return NextResponse.json(newQuestion, { status: 201 })
   } catch (error) {

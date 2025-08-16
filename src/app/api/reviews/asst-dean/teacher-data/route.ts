@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
         name: teacher.name,
         email: teacher.email,
         department: teacher.department?.name || 'N/A',
-        status: startAsstReview ? 'REVIEWED' : 'PENDING',
+        status: 'PENDING', // Status will be determined by the current term being reviewed
         teacherAnswers: {
           START: startAnswers,
           END: endAnswers
@@ -102,8 +102,8 @@ export async function GET(request: NextRequest) {
           END: endHodReview?.comments || ''
         },
         hodScore: {
-          START: startHod.total,
-          END: endHod.total
+          START: (startHodReview?.scores as any)?.overallRating || startHod.total,
+          END: (endHodReview?.scores as any)?.overallRating || endHod.total
         },
         hodQuestionScores: {
           START: startHod.questionScores,
@@ -113,6 +113,38 @@ export async function GET(request: NextRequest) {
           START: startHod.rubric,
           END: endHod.rubric
         },
+        receivedHodReviews: {
+          START: startHodReview ? {
+            id: startHodReview.id,
+            term: startHodReview.term,
+            comments: startHodReview.comments,
+            scores: startHodReview.scores,
+            submitted: startHodReview.submitted
+          } : null,
+          END: endHodReview ? {
+            id: endHodReview.id,
+            term: endHodReview.term,
+            comments: endHodReview.comments,
+            scores: endHodReview.scores,
+            submitted: endHodReview.submitted
+          } : null
+        },
+        receivedAsstReviews: {
+          START: startAsstReview ? {
+            id: startAsstReview.id,
+            term: startAsstReview.term,
+            comments: startAsstReview.comments,
+            scores: startAsstReview.scores,
+            submitted: startAsstReview.submitted
+          } : null,
+          END: endAsstReview ? {
+            id: endAsstReview.id,
+            term: endAsstReview.term,
+            comments: endAsstReview.comments,
+            scores: endAsstReview.scores,
+            submitted: endAsstReview.submitted
+          } : null
+        },
         asstDeanComment: {
           START: startAsstReview?.comments || '',
           END: endAsstReview?.comments || ''
@@ -121,7 +153,7 @@ export async function GET(request: NextRequest) {
           START: (startAsstReview?.scores as any)?.totalScore || 0,
           END: (endAsstReview?.scores as any)?.totalScore || 0
         },
-        canReview: !startAsstReview || !endAsstReview
+        canReview: true // Assistant Dean can always review teachers, regardless of previous reviews
       }
     })
 

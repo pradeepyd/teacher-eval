@@ -18,7 +18,14 @@ export async function POST(_request: NextRequest) {
     }
 
     // Ensure active term exists
-    const termState = await prisma.termState.findUnique({ where: { departmentId } })
+    const termState = await prisma.termState.findUnique({ 
+      where: { 
+        departmentId_year: {
+          departmentId,
+          year: new Date().getFullYear()
+        }
+      } 
+    })
     if (!termState || !termState.activeTerm) {
       return NextResponse.json({ error: 'No active term set for your department' }, { status: 400 })
     }
@@ -66,6 +73,7 @@ export async function POST(_request: NextRequest) {
       .filter(text => !existingTexts.has(text))
       .map((text, idx) => ({
         departmentId,
+        year: new Date().getFullYear(),
         term: activeTerm,
         type: 'MCQ' as const,
         question: text,

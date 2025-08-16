@@ -70,7 +70,7 @@ export default function DepartmentsPage() {
       const data = await response.json()
       setDepartments(data.departments || [])
     } catch (error) {
-      console.error('Error fetching departments:', error)
+
       setError('Failed to load departments')
     } finally {
       setLoading(false)
@@ -87,7 +87,7 @@ export default function DepartmentsPage() {
       const data = await response.json()
       setUsers(data.users || [])
     } catch (error) {
-      console.error('Error fetching users:', error)
+
       setError('Failed to load users')
     }
   }
@@ -129,7 +129,7 @@ export default function DepartmentsPage() {
       setShowAddModal(false)
       await fetchDepartments()
     } catch (error) {
-      console.error('Error creating department:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to create department')
     } finally {
       setSubmitting(false)
@@ -172,7 +172,7 @@ export default function DepartmentsPage() {
       setSelectedTeachers([])
       await fetchDepartments()
     } catch (error) {
-      console.error('Error updating department:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to update department')
     } finally {
       setSubmitting(false)
@@ -199,7 +199,7 @@ export default function DepartmentsPage() {
       setDeletingId(null)
       await fetchDepartments()
     } catch (error) {
-      console.error('Error deleting department:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to delete department')
     } finally {
       setSubmitting(false)

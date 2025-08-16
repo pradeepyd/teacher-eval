@@ -65,7 +65,7 @@ export default function QuestionsPage() {
         setTermState(data)
       }
     } catch (error) {
-      console.error('Error fetching term state:', error)
+
     }
   }
 

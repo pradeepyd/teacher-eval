@@ -57,6 +57,9 @@ export default function UsersPage() {
     departmentId: '',
     password: ''
   })
+  
+  // Password validation state
+  const [passwordErrors, setPasswordErrors] = useState<string[]>([])
 
   // Fetch users
   const fetchUsers = async () => {
@@ -78,7 +81,7 @@ export default function UsersPage() {
       const data = await response.json()
       setUsers(data.users || [])
     } catch (error) {
-      console.error('Error fetching users:', error)
+
       setError('Failed to load users')
     } finally {
       setLoading(false)
@@ -95,8 +98,33 @@ export default function UsersPage() {
       const data = await response.json()
       setDepartments(data.departments || [])
     } catch (error) {
-      console.error('Error fetching departments:', error)
+
       setError('Failed to load departments')
+    }
+  }
+
+  // Password validation function
+  const validatePassword = (password: string): string[] => {
+    const errors: string[] = []
+    
+    if (password.length < 8) {
+      errors.push('Password must be at least 8 characters long')
+    }
+    if (!/[0-9]/.test(password)) {
+      errors.push('Password must contain at least one number')
+    }
+    
+    return errors
+  }
+  
+  // Real-time password validation
+  const handlePasswordChange = (password: string) => {
+    setFormData({ ...formData, password })
+    if (password.trim()) {
+      const errors = validatePassword(password)
+      setPasswordErrors(errors)
+    } else {
+      setPasswordErrors([])
     }
   }
 
@@ -104,6 +132,12 @@ export default function UsersPage() {
   const handleAddUser = async () => {
     if (!formData.name.trim() || !formData.email.trim() || !formData.role) {
       setError('Please fill in all required fields')
+      return
+    }
+
+    // Validate password
+    if (passwordErrors.length > 0) {
+      setError('Please fix password validation errors before adding user')
       return
     }
 
@@ -126,6 +160,9 @@ export default function UsersPage() {
 
       if (!response.ok) {
         const errorData = await response.json()
+        if (errorData.details && Array.isArray(errorData.details)) {
+          throw new Error(`Password validation failed:\n${errorData.details.join('\n')}`)
+        }
         throw new Error(errorData.error || 'Failed to add user')
       }
 
@@ -134,7 +171,7 @@ export default function UsersPage() {
       setShowAddModal(false)
       resetForm()
     } catch (error) {
-      console.error('Error adding user:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to add user')
     } finally {
       setSubmitting(false)
@@ -150,6 +187,14 @@ export default function UsersPage() {
       return
     }
 
+    // Validate password if provided
+    if (formData.password.trim()) {
+      if (passwordErrors.length > 0) {
+        setError('Please fix password validation errors before updating')
+        return
+      }
+    }
+
     setSubmitting(true)
     setError(null)
     setSuccess(null)
@@ -162,12 +207,16 @@ export default function UsersPage() {
           name: formData.name.trim(),
           email: formData.email.trim(),
           role: formData.role,
-          departmentId: formData.departmentId || null
+          departmentId: formData.departmentId || null,
+          password: formData.password
         })
       })
 
       if (!response.ok) {
         const errorData = await response.json()
+        if (errorData.details && Array.isArray(errorData.details)) {
+          throw new Error(`Password validation failed:\n${errorData.details.join('\n')}`)
+        }
         throw new Error(errorData.error || 'Failed to update user')
       }
 
@@ -176,7 +225,7 @@ export default function UsersPage() {
       setShowAddModal(false)
       resetForm()
     } catch (error) {
-      console.error('Error updating user:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to update user')
     } finally {
       setSubmitting(false)
@@ -204,7 +253,7 @@ export default function UsersPage() {
       await fetchUsers()
       setDeletingUser(null)
     } catch (error) {
-      console.error('Error deleting user:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to delete user')
     } finally {
       setSubmitting(false)
@@ -221,6 +270,7 @@ export default function UsersPage() {
       password: ''
     })
     setEditingUser(null)
+    setPasswordErrors([])
   }
 
   // Open edit modal
@@ -233,6 +283,7 @@ export default function UsersPage() {
       departmentId: user.department?.id || '',
       password: ''
     })
+    setPasswordErrors([])
     setShowAddModal(true)
   }
 
@@ -384,19 +435,44 @@ export default function UsersPage() {
                       disabled={submitting}
                     />
                   </div>
-                  {!editingUser && (
-                    <div className="grid gap-2">
-                      <label htmlFor="password" className="text-sm font-medium">Password</label>
-                      <Input
+                                     <div className="grid gap-2">
+                     <label htmlFor="password" className="text-sm font-medium">
+                       {editingUser ? 'New Password (leave blank to keep current)' : 'Password'}
+                     </label>
+                                           <Input
                         id="password"
                         type="password"
                         value={formData.password}
-                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        placeholder="Temporary password for the user"
+                        onChange={(e) => handlePasswordChange(e.target.value)}
+                        placeholder={editingUser ? "Enter new password or leave blank" : "Enter password"}
                         disabled={submitting}
+                        className={passwordErrors.length > 0 ? "border-red-500" : ""}
                       />
-                    </div>
-                  )}
+                      {passwordErrors.length > 0 && (
+                        <div className="text-xs text-red-600 space-y-1">
+                          <p className="font-medium">Password validation errors:</p>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {passwordErrors.map((error, index) => (
+                              <li key={index}>{error}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                                           {!editingUser && (
+                        <div className="text-xs text-gray-600 space-y-1">
+                          <p className="font-medium">Password must contain:</p>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            <li>At least 8 characters</li>
+                            <li>One number (0-9)</li>
+                          </ul>
+                        </div>
+                      )}
+                     {editingUser && (
+                       <p className="text-xs text-gray-500">
+                         Only fill this field if you want to change the user's password
+                       </p>
+                     )}
+                   </div>
                   <div className="grid gap-2">
                     <label htmlFor="role" className="text-sm font-medium">Role</label>
                     <Select 
@@ -440,16 +516,19 @@ export default function UsersPage() {
                   <Button variant="outline" onClick={() => setShowAddModal(false)} disabled={submitting}>
                     Cancel
                   </Button>
-                  <Button onClick={editingUser ? handleEditUser : handleAddUser} disabled={submitting}>
-                    {submitting ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        {editingUser ? 'Updating...' : 'Adding...'}
-                      </>
-                    ) : (
-                      editingUser ? 'Update User' : 'Add User'
-                    )}
-                  </Button>
+                                     <Button 
+                     onClick={editingUser ? handleEditUser : handleAddUser} 
+                     disabled={submitting || passwordErrors.length > 0}
+                   >
+                     {submitting ? (
+                       <>
+                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                         {editingUser ? 'Updating...' : 'Adding...'}
+                       </>
+                     ) : (
+                       editingUser ? 'Update User' : 'Add User'
+                     )}
+                   </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>

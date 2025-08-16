@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, FileDown } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Department {
@@ -36,7 +36,7 @@ interface TeacherAnswer {
   }
 }
 
-interface TermScoped<T> { START: T; END: T }
+interface TermScoped<T> { START?: T; END?: T }
 
 interface Teacher {
   id: string
@@ -60,6 +60,14 @@ interface Teacher {
     comments: string
     scores: any
   }>
+  receivedFinalReviews?: TermScoped<{
+    id: string
+    term: string
+    finalComment: string
+    finalScore: number
+    status: string
+    submitted: boolean
+  } | null | undefined>
 }
 
 export default function DeanDashboard() {
@@ -74,7 +82,7 @@ export default function DeanDashboard() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null)
   const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
-  type HodReviewView = { reviewer: { id: string; name: string; role: string }, comments: string, totalScore: number | null, scores?: Record<string, number> | null }
+  type HodReviewView = { reviewer: { id: string; name: string; role: string }, comments: string, totalScore: number | null, scores?: Record<string, number> | null, status?: 'PROMOTED' | 'ON_HOLD' | 'NEEDS_IMPROVEMENT' }
   type HodView = { id: string; name: string; department?: { id: string; name: string } | null; reviews: HodReviewView[] }
   const [hods, setHods] = useState<HodView[]>([])
   const [hodTerm, setHodTerm] = useState<'START'|'END'>('START')
@@ -99,7 +107,7 @@ export default function DeanDashboard() {
         setSelectedDept(list[0].id)
       }
     } catch (error) {
-      console.error('Error fetching departments:', error)
+
       setError('Failed to load departments')
       toast.error('Failed to load departments')
     }
@@ -120,7 +128,7 @@ export default function DeanDashboard() {
       const data = await response.json()
       setTeachers(data.teachers || [])
     } catch (error) {
-      console.error('Error fetching teachers:', error)
+
       setError('Failed to load teachers')
       toast.error('Failed to load teachers')
     } finally {
@@ -192,9 +200,22 @@ export default function DeanDashboard() {
         // If already finalized, notify and update UI
         if (msg.includes('Final review already submitted')) {
           toast.success('This teacher has already been finalized for this term')
-          setTeachers(prev => prev.map(t => (
-            t.id === teacherId ? { ...t, status: 'FINALIZED', canReview: false } : t
-          )))
+          setTeachers(prev => prev.map(t => 
+            t.id === teacherId ? { 
+              ...t, 
+              receivedFinalReviews: {
+                ...(t.receivedFinalReviews || {}),
+                [activeTerm as 'START' | 'END']: {
+                  id: `temp-${Date.now()}`,
+                  term: activeTerm as 'START' | 'END',
+                  finalComment: '',
+                  finalScore: 0,
+                  status: 'ON_HOLD',
+                  submitted: true
+                }
+              }
+            } : t
+          ))
           return
         }
         throw new Error(msg)
@@ -203,23 +224,63 @@ export default function DeanDashboard() {
       setSuccess('Final review submitted successfully!')
       toast.success('Final review submitted successfully!')
       
-      // Update local state
+      // Update local state to reflect the new review submission
       setTeachers(prev => prev.map(t => 
         t.id === teacherId 
-          ? { ...t, status: 'FINALIZED', canReview: false }
+          ? { 
+              ...t, 
+              // Update the receivedFinalReviews to show the review as submitted
+              receivedFinalReviews: {
+                ...(t.receivedFinalReviews || {}),
+                [activeTerm as 'START' | 'END']: {
+                  id: `temp-${Date.now()}`, // Temporary ID since we don't have the actual DB ID
+                  term: activeTerm as 'START' | 'END',
+                  finalComment: comment.trim(),
+                  finalScore: finalScore,
+                  status: promoted ? 'PROMOTED' : 'ON_HOLD',
+                  submitted: true
+                }
+              },
+              // Also update the comment and score fields for consistency
+              deanComment: {
+                ...(t.deanComment as any),
+                [activeTerm as 'START' | 'END']: comment.trim()
+              },
+              finalScore: {
+                ...(t.finalScore as any),
+                [activeTerm as 'START' | 'END']: finalScore
+              },
+              promoted: {
+                ...(t.promoted as any),
+                [activeTerm as 'START' | 'END']: promoted
+              }
+            } as Teacher
           : t
       ))
       
       setShowConfirmDialog(false)
       setSelectedTeacher(null)
     } catch (error) {
-      console.error('Error submitting final review:', error)
+
       const msg = error instanceof Error ? error.message : 'Failed to submit final review'
       if (msg.includes('Final review already submitted')) {
         toast.success('This teacher has already been finalized for this term')
-        setTeachers(prev => prev.map(t => (
-          t.id === teacherId ? { ...t, status: 'FINALIZED', canReview: false } : t
-        )))
+        setTeachers(prev => prev.map(t => 
+          t.id === teacherId ? { 
+            ...t, 
+            receivedFinalReviews: {
+              ...(t.receivedFinalReviews || {}),
+              [activeTerm as 'START' | 'END']: {
+                id: `temp-${Date.now()}`,
+                term: activeTerm as 'START' | 'END',
+                finalComment: '',
+                finalScore: 0,
+                status: 'ON_HOLD',
+                submitted: true
+              }
+            }
+          } : t
+        ))
       } else {
         setError(msg)
         toast.error(msg)
@@ -227,6 +288,20 @@ export default function DeanDashboard() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // Helper function to get teacher status for current term
+  const getTeacherStatusForTerm = (teacher: Teacher, term: 'START' | 'END' | null) => {
+    if (!term) return 'PENDING'
+    
+    // Check if there's a submitted final review in the database for this term
+    const hasSubmittedReview = teacher.receivedFinalReviews && 
+      teacher.receivedFinalReviews[term as keyof typeof teacher.receivedFinalReviews]?.submitted === true
+    
+    if (hasSubmittedReview) {
+      return 'FINALIZED'
+    }
+    return 'PENDING'
   }
 
   // Update teacher data locally
@@ -269,12 +344,8 @@ export default function DeanDashboard() {
     submitFinalReview(selectedTeacher.id, deanCommentVal, finalScoreVal, promotedVal)
   }
 
-  // Export PDF (placeholder)
-  const exportPDF = (teacher: Teacher) => {
-    console.log('Exporting PDF for:', teacher.name)
-    // TODO: Implement PDF export functionality
-    setSuccess(`PDF export initiated for ${teacher.name}`)
-  }
+
+
 
   // Load data on component mount
   useEffect(() => {
@@ -381,10 +452,11 @@ export default function DeanDashboard() {
                               <div className="flex items-center gap-2">
                                 {(() => {
                                   const deanReview = h.reviews.find(r => r.reviewer.role === 'DEAN')
-                                  if (!deanReview || !(deanReview as any).status) return null
-                                  const st = (deanReview as any).status as 'PROMOTED' | 'ON_HOLD' | 'NEEDS_IMPROVEMENT'
-                                  const cls = st === 'PROMOTED' ? 'bg-emerald-100 text-emerald-700' : st === 'ON_HOLD' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
-                                  return <Badge className={cls}>{st}</Badge>
+                                  if (deanReview) {
+                                    return <Badge className="bg-blue-700 text-white">Finalized</Badge>
+                                  } else {
+                                    return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
+                                  }
                                 })()}
                               </div>
                             </div>
@@ -442,79 +514,133 @@ export default function DeanDashboard() {
                       </div>
                       {openHodFinalId === h.id && (
                         <div className="mt-4 border-t pt-4 space-y-3">
-                          <div className="text-sm font-medium">Dean Final Review (HOD) — Term: {hodTerm}</div>
-                          <div>
-                            <label className="text-sm font-medium">Final Comments</label>
-                            <Textarea
-                              value={hodFinalComment}
-                              onChange={(e) => setHodFinalComment(e.target.value)}
-                              placeholder="Enter your final comments..."
-                            />
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium">Final Score (1-100)</label>
-                            <Input
-                              type="number"
-                              min={1}
-                              max={100}
-                              value={hodFinalScore ?? ''}
-                              onChange={(e) => setHodFinalScore(parseInt(e.target.value) || 0)}
-                              className="w-32"
-                            />
-                          </div>
-                                                    <div className="space-y-3">
-                            <div>
-                              <label className="text-sm font-medium mb-2 block">Decision</label>
-                              <button
-                                type="button"
-                                className={`px-4 py-2 text-sm rounded-md border transition-colors ${
-                                  hodFinalPromoted 
-                                    ? 'bg-green-100 text-green-800 border-green-300' 
-                                    : 'bg-amber-100 text-amber-800 border-amber-300'
-                                }`}
-                                onClick={() => setHodFinalPromoted(p => !p)}
-                              >
-                                {hodFinalPromoted ? '✓ PROMOTED' : '⚠ ON_HOLD'}
-                              </button>
-                            </div>
-                            <Button
-                              className={`w-full ${
-                                hodFinalPromoted 
-                                  ? 'bg-green-600 hover:bg-green-700' 
-                                  : 'bg-amber-600 hover:bg-amber-700'
-                              }`}
-                              onClick={async () => {
-                                if (!openHodFinalId) return
-                                try {
-                                  const res = await fetch('/api/reviews/dean/hod', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ 
-                                      hodId: openHodFinalId, 
-                                      term: hodTerm, 
-                                      comments: hodFinalComment.trim(), 
-                                      totalScore: hodFinalScore, 
-                                      promoted: hodFinalPromoted 
-                                    }),
-                                  })
-                                  if (!res.ok) {
-                                    const data = await res.json().catch(() => ({}))
-                                    throw new Error(data.error || 'Failed to submit HOD review')
-                                  }
-                                  toast.success('HOD final review saved')
-                                  setOpenHodFinalId(null)
-                                  setHodFinalComment('')
-                                  setHodFinalScore(null)
-                                  setHodFinalPromoted(true)
-                                  await fetchHodPerformance()
-                                } catch (e: any) {
-                                  toast.error(e.message || 'Failed to submit')
-                                }
-                              }}
-                            >
-                              {hodFinalPromoted ? 'Finalize - PROMOTE HOD' : 'Finalize - PUT ON HOLD'}
-                            </Button>
-                          </div>
+                          {(() => {
+                            const deanReview = h.reviews.find((r: HodReviewView) => r.reviewer.role === 'DEAN')
+                            const isAlreadyFinalized = deanReview !== undefined
+                            
+                            if (isAlreadyFinalized) {
+                              return (
+                                <div className="space-y-3">
+                                  <div className="text-sm font-medium">Dean Final Review (HOD) — Term: {hodTerm}</div>
+                                  <div>
+                                    <label className="text-sm font-medium">Final Comments</label>
+                                    <Textarea
+                                      value={deanReview?.comments || ''}
+                                      placeholder="No comments provided"
+                                      disabled
+                                      className="bg-gray-50"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-sm font-medium">Final Score (1-100)</label>
+                                    <Input
+                                      type="number"
+                                      value={deanReview?.totalScore || ''}
+                                      disabled
+                                      className="w-32 bg-gray-50"
+                                    />
+                                  </div>
+                                  <div className="space-y-3">
+                                    <div>
+                                      <label className="text-sm font-medium mb-2 block">Decision</label>
+                                      <div className={`px-4 py-2 text-sm rounded-md border ${
+                                        deanReview?.status === 'PROMOTED'
+                                          ? 'bg-green-100 text-green-800 border-green-300' 
+                                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                                      }`}>
+                                        {deanReview?.status === 'PROMOTED' ? '✓ PROMOTED' : '⚠ ON HOLD'}
+                                      </div>
+                                    </div>
+                                    <Button
+                                      variant="outline"
+                                      onClick={() => setOpenHodFinalId(null)}
+                                      className="w-full"
+                                    >
+                                      Close
+                                    </Button>
+                                  </div>
+                                </div>
+                              )
+                            }
+                            
+                            return (
+                              <>
+                                <div className="text-sm font-medium">Dean Final Review (HOD) — Term: {hodTerm}</div>
+                                <div>
+                                  <label className="text-sm font-medium">Final Comments</label>
+                                  <Textarea
+                                    value={hodFinalComment}
+                                    onChange={(e) => setHodFinalComment(e.target.value)}
+                                    placeholder="Enter your final comments..."
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-sm font-medium">Final Score (1-100)</label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    value={hodFinalScore ?? ''}
+                                    onChange={(e) => setHodFinalScore(parseInt(e.target.value) || 0)}
+                                    className="w-32"
+                                  />
+                                </div>
+                                <div className="space-y-3">
+                                  <div>
+                                    <label className="text-sm font-medium mb-2 block">Decision</label>
+                                    <button
+                                      type="button"
+                                      className={`px-4 py-2 text-sm rounded-md border transition-colors ${
+                                        hodFinalPromoted 
+                                          ? 'bg-green-100 text-green-800 border-green-300' 
+                                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                                      }`}
+                                      onClick={() => setHodFinalPromoted(p => !p)}
+                                    >
+                                      {hodFinalPromoted ? '✓ PROMOTED' : '⚠ ON_HOLD'}
+                                    </button>
+                                  </div>
+                                  <Button
+                                    className={`w-full ${
+                                      hodFinalPromoted 
+                                        ? 'bg-green-600 hover:bg-green-700' 
+                                        : 'bg-amber-600 hover:bg-amber-700'
+                                    }`}
+                                    onClick={async () => {
+                                      if (!openHodFinalId) return
+                                      try {
+                                        const res = await fetch('/api/reviews/dean/hod', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ 
+                                            hodId: openHodFinalId, 
+                                            term: hodTerm, 
+                                            comments: hodFinalComment.trim(), 
+                                            totalScore: hodFinalScore, 
+                                            promoted: hodFinalPromoted 
+                                          }),
+                                        })
+                                        if (!res.ok) {
+                                          const data = await res.json().catch(() => ({}))
+                                          throw new Error(data.error || 'Failed to submit HOD review')
+                                        }
+                                        toast.success('HOD final review saved')
+                                        setOpenHodFinalId(null)
+                                        setHodFinalComment('')
+                                        setHodFinalScore(null)
+                                        setHodFinalPromoted(true)
+                                        await fetchHodPerformance()
+                                      } catch (e: any) {
+                                        toast.error(e.message || 'Failed to submit')
+                                      }
+                                    }}
+                                  >
+                                    {hodFinalPromoted ? 'Finalize - PROMOTE HOD' : 'Finalize - PUT ON HOLD'}
+                                  </Button>
+                                </div>
+                              </>
+                            )
+                          })()}
                         </div>
                       )}
                           </AccordionContent>
@@ -575,17 +701,10 @@ export default function DeanDashboard() {
                         <p className="text-sm text-gray-600">{teacher.email}</p>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <Badge variant={teacher.status === 'FINALIZED' ? 'default' : 'secondary'}>
-                          {teacher.status === 'FINALIZED' ? 'Finalized' : 'Pending'}
+                        <Badge variant={getTeacherStatusForTerm(teacher, activeTerm) === 'FINALIZED' ? 'default' : 'secondary'}>
+                          {getTeacherStatusForTerm(teacher, activeTerm) === 'FINALIZED' ? 'Finalized' : 'Pending'}
                         </Badge>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => exportPDF(teacher)}
-                        >
-                          <FileDown className="w-4 h-4 mr-2" />
-                          Export PDF
-                        </Button>
+
                       </div>
                     </div>
                   </CardHeader>
@@ -648,76 +767,64 @@ export default function DeanDashboard() {
                                   </div>
                                   
                                   <div>
-                                    <span className="text-sm font-medium">Total Score: </span>
-                                    <span className="text-sm text-gray-700">{(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}/10</span>
+                                    <span className="text-sm font-medium">HOD Review Status: </span>
+                                    <span className="text-sm text-gray-700">
+                                      {(() => {
+                                        const hodReview = (teacher.receivedHodReviews as any)?.[activeTerm || 'START']
+                                        return hodReview ? 'Completed' : 'Not Available'
+                                      })()}
+                                    </span>
                                   </div>
 
-                                  {/* HOD Rubric Breakdown */}
-                                  {(() => {
-                                    const hodReview = teacher.receivedHodReviews?.find((r: any) => r.term === (activeTerm || 'START'))
-                                    if (!hodReview?.scores) return null
+                                                                    {/* HOD Complete Score Breakdown */}
+                                   {(() => {
+                                     const hodReview = (teacher.receivedHodReviews as any)?.[activeTerm || 'START']
+                                     if (!hodReview?.scores) return null
                                     
                                     try {
                                       const scores = typeof hodReview.scores === 'string' ? JSON.parse(hodReview.scores) : hodReview.scores
                                       
-                                      // Handle structured scores with rubric breakdown
-                                      if (scores.rubric && typeof scores.rubric === 'object') {
-                                        return (
-                                          <div>
-                                            <span className="text-sm font-medium">Rubric Breakdown:</span>
-                                            <div className="mt-2 space-y-2">
-                                              {Object.entries(scores.rubric).map(([category, items]: [string, any]) => (
-                                                <div key={category} className="border-l-2 border-blue-200 pl-3">
-                                                  <div className="text-xs font-medium text-gray-600 uppercase">{category}</div>
-                                                  <div className="space-y-1 mt-1">
-                                                    {typeof items === 'object' && items !== null ? (
-                                                      Object.entries(items).map(([item, score]: [string, any]) => (
-                                                        <div key={item} className="flex items-center justify-between text-xs">
-                                                          <span className="text-gray-600">{item}</span>
-                                                          <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">{score}</span>
-                                                        </div>
-                                                      ))
-                                                    ) : (
-                                                      <div className="flex items-center justify-between text-xs">
-                                                        <span className="text-gray-600">{category}</span>
-                                                        <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">{items}</span>
-                                                      </div>
-                                                    )}
+                                      return (
+                                        <div className="space-y-4">
+                                          {/* Rubric Scores (1-5) */}
+                                          {scores.rubric && typeof scores.rubric === 'object' && Object.keys(scores.rubric).length > 0 && (
+                                            <div>
+                                              <span className="text-sm font-medium text-green-700">Rubric Scores (1-5 points each):</span>
+                                              <div className="mt-2 space-y-2">
+                                                {Object.entries(scores.rubric).map(([key, value]) => (
+                                                  <div key={key} className="flex items-center justify-between text-xs bg-green-50 p-2 rounded">
+                                                    <span className="text-gray-700 flex-1 mr-2">{key.replace(/\[(.*?)\]/g, (match, content) => `[${content.toUpperCase()}]`)}</span>
+                                                    <span className="px-2 py-1 rounded bg-green-100 text-green-800 font-medium">{String(value)}/5</span>
                                                   </div>
-                                                </div>
-                                              ))}
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {/* Performance Summary */}
+                                          <div className="mt-3 p-3 bg-yellow-50 rounded border border-yellow-200">
+                                            <div className="text-sm font-medium text-yellow-800 mb-2">Performance Summary:</div>
+                                            <div className="space-y-1 text-xs">
+                                              <div className="flex justify-between">
+                                                <span>Rubric Performance:</span>
+                                                <span className="font-medium">{scores.totalScore} points</span>
+                                              </div>
+                                              <div className="flex justify-between">
+                                                <span>Overall Rating:</span>
+                                                <span className="font-medium">{(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}/10</span>
+                                              </div>
                                             </div>
                                           </div>
-                                        )
-                                      }
-                                      
-                                      // Handle simple key-value scores
-                                      if (typeof scores === 'object' && scores !== null && Object.keys(scores).length > 0) {
-                                        return (
-                                          <div>
-                                            <span className="text-sm font-medium">Score Breakdown:</span>
-                                            <div className="mt-2 space-y-1">
-                                              {Object.entries(scores).filter(([k]) => k !== 'totalScore' && k !== 'questionScores').map(([key, value]: [string, any]) => (
-                                                <div key={key} className="flex items-center justify-between text-xs">
-                                                  <span className="text-gray-600">{key}</span>
-                                                  <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">{value}</span>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        )
-                                      }
-                                    } catch (e) {
-                                      // If parsing fails, show raw scores
+                                        </div>
+                                      )
+                                    } catch (e: any) {
                                       return (
                                         <div>
-                                          <span className="text-sm font-medium">Raw Score Data: </span>
-                                          <span className="text-xs text-gray-500">{JSON.stringify(hodReview.scores)}</span>
+                                          <span className="text-sm font-medium text-red-600">Error parsing scores: </span>
+                                          <span className="text-xs text-gray-500">{e.message}</span>
                                         </div>
                                       )
                                     }
-                                    
-                                    return null
                                   })()}
                                 </div>
                               </div>
@@ -790,7 +897,7 @@ export default function DeanDashboard() {
                                   {teacher.canReview && (
                                     <Button 
                                       onClick={() => handleSubmit(teacher)}
-                                      disabled={teacher.status === 'FINALIZED' || submitting}
+                                      disabled={getTeacherStatusForTerm(teacher, activeTerm) === 'FINALIZED' || submitting}
                                       className={`w-full ${
                                         Boolean((teacher.promoted as any)?.[activeTerm || 'START'] || false)
                                           ? 'bg-green-600 hover:bg-green-700' 

@@ -13,8 +13,14 @@ export async function GET(_request: NextRequest) {
     }
 
     // Get department's active term
-    const termState = await prisma.termState.findUnique({
-      where: { departmentId: session.user.departmentId }
+        const currentYear = new Date().getFullYear()
+    const termState = await prisma.termState.findUnique({ 
+      where: { 
+        departmentId_year: {
+          departmentId: session.user.departmentId,
+          year: currentYear
+        }
+      } 
     })
 
     // Teachers can access evaluations when HOD has published questions
@@ -98,32 +104,57 @@ export async function GET(_request: NextRequest) {
 
     const startSelfComment = await prisma.selfComment.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId: session.user.id,
-          term: 'START'
+          term: 'START',
+          year: new Date().getFullYear()
         }
       }
     })
 
     const endSelfComment = await prisma.selfComment.findUnique({
       where: {
-        teacherId_term: {
+        teacherId_term_year: {
           teacherId: session.user.id,
-          term: 'END'
+          term: 'END',
+          year: new Date().getFullYear()
+        }
+      }
+    })
+
+    // Check if Dean has finalized the review for each term
+    const startFinalReview = await prisma.finalReview.findUnique({
+      where: {
+        teacherId_term_year: {
+          teacherId: session.user.id,
+          term: 'START',
+          year: new Date().getFullYear()
+        }
+      }
+    })
+
+    const endFinalReview = await prisma.finalReview.findUnique({
+      where: {
+        teacherId_term_year: {
+          teacherId: session.user.id,
+          term: 'END',
+          year: new Date().getFullYear()
         }
       }
     })
 
     // Determine status for each term
-    const getTermStatus = (questionsCount: number, answersCount: number, hasSelfComment: boolean) => {
+    const getTermStatus = (questionsCount: number, answersCount: number, hasSelfComment: boolean, hasFinalReview: boolean) => {
       if (questionsCount === 0) return 'NOT_AVAILABLE'
       if (answersCount === 0) return 'NOT_STARTED'
-      if (answersCount === questionsCount && hasSelfComment) return 'SUBMITTED'
+      if (answersCount === questionsCount && hasSelfComment) {
+        return hasFinalReview ? 'REVIEWED' : 'SUBMITTED'
+      }
       return 'IN_PROGRESS'
     }
 
-    const startStatus = getTermStatus(startQuestionsCount, startAnswersCount, !!startSelfComment)
-    const endStatus = getTermStatus(endQuestionsCount, endAnswersCount, !!endSelfComment)
+    const startStatus = getTermStatus(startQuestionsCount, startAnswersCount, !!startSelfComment, !!startFinalReview)
+    const endStatus = getTermStatus(endQuestionsCount, endAnswersCount, !!endSelfComment, !!endFinalReview)
 
     const nowIso = new Date().toISOString()
 

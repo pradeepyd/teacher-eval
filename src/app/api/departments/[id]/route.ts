@@ -19,7 +19,7 @@ export async function GET(
     const department = await prisma.department.findUnique({
       where: { id: resolved.id },
       include: {
-        termState: true,
+        termStates: true,
         _count: {
           select: {
             users: true

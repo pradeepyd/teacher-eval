@@ -18,7 +18,7 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
-import { Plus, Trash2, Save, Send, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, Save, Send, Loader2, ChevronDown, ChevronUp, Download, FileText } from 'lucide-react'
 
 interface Question {
   id: string
@@ -62,10 +62,15 @@ export default function HodDashboard() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [hasStartTermReview, setHasStartTermReview] = useState(false)
+  const [hasEndTermReview, setHasEndTermReview] = useState(false)
   const [activeTerm, setActiveTerm] = useState<'START' | 'END' | null>(null)
-  const [visibility, setVisibility] = useState<'DRAFT' | 'PUBLISHED'>('DRAFT')
+  const [departmentActiveTerm, setDepartmentActiveTerm] = useState<'START' | 'END' | null>(null)
+  const [termStateLoading, setTermStateLoading] = useState(true)
+  const [visibility, setVisibility] = useState<'DRAFT' | 'PUBLISHED' | 'COMPLETE'>('DRAFT')
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false)
   const [openTeacherId, setOpenTeacherId] = useState<string | null>(null)
+  const [departmentStates, setDepartmentStates] = useState<Record<string, any>>({})
 
   // Question form state
   const [newQuestion, setNewQuestion] = useState({
@@ -75,6 +80,42 @@ export default function HodDashboard() {
     optionScores: [0] as number[],
     required: false,
   })
+
+
+  // Fetch department's active term for current year
+  const fetchDepartmentActiveTerm = async () => {
+    const userDepartmentId = (session?.user as any)?.departmentId
+    if (!userDepartmentId) return
+
+    try {
+      setTermStateLoading(true)
+      const currentYear = new Date().getFullYear()
+  
+      
+      const response = await fetch(`/api/departments/${userDepartmentId}/term-state`)
+      if (response.ok) {
+        const data = await response.json()
+
+        
+        const deptActiveTerm = data.activeTerm || null
+        const termYear = data.year || currentYear
+        setDepartmentActiveTerm(deptActiveTerm)
+        
+        // Auto-set the active term for question creation if not already set
+        if (deptActiveTerm && !activeTerm) {
+          setActiveTerm(deptActiveTerm)
+        }
+        
+        
+      } else {
+
+      }
+    } catch (error) {
+      
+    } finally {
+      setTermStateLoading(false)
+    }
+  }
 
   // Fetch questions
   const fetchQuestions = async () => {
@@ -87,7 +128,7 @@ export default function HodDashboard() {
       const data = await response.json()
       setQuestions(data.questions || [])
     } catch (error) {
-      console.error('Error fetching questions:', error)
+
       setError('Failed to load questions')
     }
   }
@@ -107,8 +148,24 @@ export default function HodDashboard() {
         setError(data.message)
       }
     } catch (error) {
-      console.error('Error fetching teachers:', error)
+
       setError('Failed to load teachers')
+    }
+  }
+
+  // Fetch department states for term completion status
+  const fetchDepartmentStates = async () => {
+    const userDepartmentId = (session?.user as any)?.departmentId
+    if (!userDepartmentId) return
+    
+    try {
+      const response = await fetch(`/api/departments/${userDepartmentId}/term-state`)
+      if (response.ok) {
+        const data = await response.json()
+        setDepartmentStates({ [userDepartmentId]: data })
+      }
+    } catch (error) {
+
     }
   }
 
@@ -121,16 +178,31 @@ export default function HodDashboard() {
       if (response.ok) {
         const data = await response.json()
         setActiveTerm(data.activeTerm || null)
-        if (data.visibility) setVisibility(data.visibility)
+        
+        // Set visibility based on current active term and term-specific visibility
+        let newVisibility: 'DRAFT' | 'PUBLISHED' | 'COMPLETE' = 'DRAFT'
+        if (data.activeTerm === 'START') {
+          newVisibility = data.startTermVisibility || 'DRAFT'
+        } else if (data.activeTerm === 'END') {
+          newVisibility = data.endTermVisibility || 'DRAFT'
+        } else {
+          newVisibility = 'DRAFT'
+        }
+        
+        setVisibility(newVisibility)
       }
     } catch (e) {
       // ignore
     }
   }
 
-  // When activeTerm changes, refresh questions
+  // When activeTerm changes, refresh questions and visibility
   useEffect(() => {
     fetchQuestions()
+    // Also refresh the visibility state when active term changes
+    if (activeTerm) {
+      fetchTermState()
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTerm])
 
@@ -155,6 +227,7 @@ export default function HodDashboard() {
           question: newQuestion.question.trim(),
           type: newQuestion.type,
           term: activeTerm,
+          year: new Date().getFullYear(),
           options: (newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX') 
             ? newQuestion.options.filter(opt => opt.trim()) 
             : [],
@@ -162,6 +235,7 @@ export default function HodDashboard() {
             ? newQuestion.optionScores.slice(0, newQuestion.options.length)
             : [],
           required: newQuestion.required,
+
         })
       })
 
@@ -182,7 +256,7 @@ export default function HodDashboard() {
       // Refresh questions
       await fetchQuestions()
     } catch (error) {
-      console.error('Error adding question:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to add question')
     } finally {
       setLoading(false)
@@ -207,7 +281,7 @@ export default function HodDashboard() {
       setSuccess('Question deleted successfully!')
       await fetchQuestions()
     } catch (error) {
-      console.error('Error deleting question:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to delete question')
     } finally {
       setLoading(false)
@@ -265,8 +339,101 @@ export default function HodDashboard() {
       ))
       setOpenTeacherId(null)
     } catch (error) {
-      console.error('Error submitting evaluation:', error)
+
       setError(error instanceof Error ? error.message : 'Failed to submit evaluation')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Download HOD evaluation report as PDF
+  const downloadHodEvaluationReport = async (term: 'START' | 'END') => {
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      // Fetch evaluation data for the specific term
+      const response = await fetch(`/api/reviews/hod/evaluation-report?term=${term}`)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+
+        throw new Error(`Failed to fetch evaluation data: ${response.status} ${errorText}`)
+      }
+      
+      const data = await response.json()
+      
+      // Generate PDF using jsPDF
+      const { jsPDF } = await import('jspdf')
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      
+      // Add content to PDF
+      pdf.setFontSize(20)
+      pdf.text('HOD Performance Evaluation Report', 105, 20, { align: 'center' })
+      
+      pdf.setFontSize(12)
+      pdf.text(`${term} Term ${new Date().getFullYear()}`, 105, 30, { align: 'center' })
+      
+      pdf.setFontSize(14)
+      pdf.text('HOD Information', 20, 50)
+      pdf.setFontSize(10)
+      pdf.text(`Name: ${session?.user?.name || 'N/A'}`, 20, 60)
+      pdf.text(`Department: ${(session as any)?.user?.departmentName || 'N/A'}`, 20, 70)
+      pdf.text(`Term: ${term}`, 20, 80)
+      
+      // Add evaluation data
+      let yPosition = 100
+      
+      // Assistant Dean Evaluation
+      if (data.asstDeanComment || data.asstDeanScore) {
+        pdf.setFontSize(14)
+        pdf.text('Assistant Dean Evaluation', 20, yPosition)
+        pdf.setFontSize(10)
+        yPosition += 10
+        
+        if (data.asstDeanComment) {
+          pdf.text(`Comments: ${data.asstDeanComment}`, 20, yPosition)
+          yPosition += 10
+        }
+        
+        if (data.asstDeanScore !== null && data.asstDeanScore !== undefined) {
+          pdf.text(`Score: ${data.asstDeanScore}%`, 20, yPosition)
+          yPosition += 10
+        }
+      }
+      
+      // Dean Final Review
+      if (data.deanComment || data.deanScore || data.promoted !== undefined) {
+        pdf.setFontSize(14)
+        pdf.text('Dean Final Review', 20, yPosition)
+        pdf.setFontSize(10)
+        yPosition += 10
+        
+        if (data.deanComment) {
+          pdf.text(`Comments: ${data.deanComment}`, 20, yPosition)
+          yPosition += 10
+        }
+        
+        if (data.deanScore !== null && data.deanScore !== undefined) {
+          pdf.text(`Final Score: ${data.deanScore}%`, 20, yPosition)
+          yPosition += 10
+        }
+        
+        if (data.promoted !== undefined) {
+          pdf.text(`Promotion Status: ${data.promoted ? 'PROMOTED' : 'NOT PROMOTED'}`, 20, yPosition)
+        }
+      }
+      
+      // Save PDF
+      const fileName = `${session?.user?.name || 'HOD'}_${term}_${new Date().getFullYear()}_Evaluation.pdf`
+      pdf.save(fileName)
+      
+      setSuccess(`Evaluation report downloaded successfully!`)
+      
+    } catch (error) {
+
+      setError('Failed to download evaluation report')
     } finally {
       setLoading(false)
     }
@@ -275,12 +442,51 @@ export default function HodDashboard() {
   // Load data on component mount
   useEffect(() => {
     if (session?.user) {
+  
+      fetchDepartmentActiveTerm()
+      fetchDepartmentStates()
       fetchQuestions()
       fetchTeachers()
       fetchTermState()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
+
+  // Check for existing HOD reviews
+  useEffect(() => {
+    const checkExistingReviews = async () => {
+      try {
+        // Check START term review
+        const startResponse = await fetch('/api/reviews/hod/evaluation-report?term=START')
+        if (startResponse.ok) {
+          const startData = await startResponse.json()
+          setHasStartTermReview(!!(startData.asstDeanComment || startData.deanComment))
+        }
+        
+        // Check END term review
+        const endResponse = await fetch('/api/reviews/hod/evaluation-report?term=END')
+        if (endResponse.ok) {
+          const endData = await endResponse.json()
+          setHasEndTermReview(!!(endData.asstDeanComment || endData.deanComment))
+        }
+      } catch (error) {
+  
+      }
+    }
+
+    if ((session as any)?.user?.id) {
+      checkExistingReviews()
+    }
+  }, [(session as any)?.user?.id])
+
+  // Debug effect to monitor state changes
+  useEffect(() => {
+
+  }, [departmentActiveTerm])
+
+  useEffect(() => {
+
+  }, [activeTerm])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -321,10 +527,80 @@ export default function HodDashboard() {
           <Card className="bg-gradient-to-r from-green-50 to-emerald-100">
             <CardContent className="py-4">
               <div className="flex items-center justify-between">
+                {/* Active Term Indicator */}
+                <div className="flex items-center gap-4">
+                  <div>
+                    <div className="text-lg font-semibold text-gray-900">
+                      Welcome, {session.user.name}!
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Department: {(session.user as any)?.departmentName || 'N/A'}
+                    </div>
+                  </div>
+                                {termStateLoading ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm text-gray-500">Loading term...</span>
+                </div>
+              ) : departmentActiveTerm ? (
+                <div className="flex items-center gap-2">
+                  {/* Check if current term is completed */}
+                  {(() => {
+                    const currentTerm = departmentActiveTerm
+                    const termState = departmentStates[(session as any)?.user?.departmentId]
+                    const isCompleted = currentTerm === 'START' 
+                      ? termState?.startTermVisibility === 'COMPLETE'
+                      : termState?.endTermVisibility === 'COMPLETE'
+
+                    
+                    if (isCompleted) {
+                      return (
+                        <Badge className="bg-purple-100 text-purple-800">
+                          Term Completed: {currentTerm} {new Date().getFullYear()}
+                        </Badge>
+                      )
+                    }
+                    
+                    return (
+                      <Badge className="bg-blue-100 text-blue-800">
+                        Active Term: {currentTerm} {new Date().getFullYear()}
+                      </Badge>
+                    )
+                  })()}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      fetchDepartmentActiveTerm()
+                      fetchDepartmentStates()
+                      fetchTermState()
+                    }}
+                    className="ml-2"
+                  >
+                    Refresh
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Badge variant="destructive">
+                    No Active Term Set for {new Date().getFullYear()}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      fetchDepartmentActiveTerm()
+                      fetchDepartmentStates()
+                      fetchTermState()
+                    }}
+                    className="ml-2"
+                  >
+                    Refresh
+                  </Button>
+                </div>
+              )}
+                </div>
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    Welcome, {session.user.name}!
-                  </h2>
                   <p className="text-gray-600">
                     Department: {(session as any)?.user?.departmentName || '—'}
                   </p>
@@ -348,10 +624,11 @@ export default function HodDashboard() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="questions">Question Management</TabsTrigger>
             <TabsTrigger value="evaluate">Evaluate Teachers</TabsTrigger>
             <TabsTrigger value="summary">Summary</TabsTrigger>
+            <TabsTrigger value="my-evaluation">My Evaluation</TabsTrigger>
           </TabsList>
 
           {/* Tab 1: Question Management */}
@@ -479,15 +756,6 @@ export default function HodDashboard() {
 
                     )}
 
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        id="required"
-                        checked={newQuestion.required}
-                        onCheckedChange={(checked) => setNewQuestion({ ...newQuestion, required: checked })}
-                      />
-                      <label htmlFor="required" className="text-sm font-medium">Required</label>
-                    </div>
-
                     <div className="flex items-center justify-end gap-2">
                       <Button 
                         onClick={addQuestion} 
@@ -498,7 +766,6 @@ export default function HodDashboard() {
                       </Button>
                     </div>
                   </CardContent>
-                  )
                 </Card>
 
                 {/* Questions List */}
@@ -563,18 +830,28 @@ export default function HodDashboard() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs rounded-full px-2 py-1 border">
-                      Visibility: <span className={visibility==='PUBLISHED' ? 'text-green-700' : 'text-yellow-700'}>{visibility}</span>
+                      Visibility: <span className={
+                        visibility==='PUBLISHED' ? 'text-green-700' : 
+                        visibility==='COMPLETE' ? 'text-red-700' : 
+                        'text-yellow-700'
+                      }>{visibility}</span>
                     </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-gray-300 text-gray-700 hover:bg-gray-100"
-                      onClick={async () => { await fetchTermState(); }}
-                    >Refresh</Button>
+                                          <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                        onClick={async () => { await fetchTermState(); }}
+                      >Refresh</Button>
+                      
+                      {visibility === 'COMPLETE' && (
+                        <span className="text-xs text-red-600 font-medium">
+                          Term completed by Dean - cannot publish
+                        </span>
+                      )}
 
                     <AlertDialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
                       <AlertDialogTrigger asChild>
-                        <Button size="sm" disabled={!activeTerm || visibility==='PUBLISHED'} className="bg-blue-600 hover:bg-blue-700 text-white">Publish</Button>
+                        <Button size="sm" disabled={!activeTerm || visibility==='PUBLISHED' || visibility==='COMPLETE'} className="bg-blue-600 hover:bg-blue-700 text-white">Publish</Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
@@ -593,14 +870,35 @@ export default function HodDashboard() {
                               setLoading(true)
                               setError(null)
                               try {
+                                // First, publish all questions for this term
+                                const publishQuestionsRes = await fetch('/api/questions/publish', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ 
+                                    departmentId: deptId, 
+                                    term: activeTerm,
+                                    year: new Date().getFullYear()
+                                  })
+                                })
+                                
+                                if (!publishQuestionsRes.ok) {
+                                  const data = await publishQuestionsRes.json().catch(() => ({}))
+                                  throw new Error(data.error || 'Failed to publish questions')
+                                }
+                                
+                                // Then update term state visibility using the new term-specific system
                                 const res = await fetch(`/api/departments/${deptId}/term-state`, {
                                   method: 'PUT',
                                   headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ activeTerm, visibility: 'PUBLISHED' })
+                                  body: JSON.stringify({ 
+                                    activeTerm, 
+                                    term: activeTerm,
+                                    termVisibility: 'PUBLISHED'
+                                  })
                                 })
                                 if (!res.ok) {
                                   const data = await res.json().catch(() => ({}))
-                                  throw new Error(data.error || 'Failed to publish')
+                                  throw new Error(data.error || 'Failed to update term visibility')
                                 }
                                 setVisibility('PUBLISHED')
                                 setSuccess('Questions published for teachers')
@@ -1010,6 +1308,89 @@ export default function HodDashboard() {
               </CardContent>
             </Card>
           </TabsContent>
+
+                          {/* Tab 4: My Evaluation */}
+                <TabsContent value="my-evaluation" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="h-5 w-5" />
+                        My Performance Evaluation
+                      </CardTitle>
+                      <p className="text-sm text-gray-600">
+                        View and download your performance evaluation reports (only available after Dean finalizes)
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {/* Start Term Evaluation - Only show if reviewed */}
+                        {hasStartTermReview && (
+                          <div className="flex items-center justify-between p-4 border rounded-lg bg-blue-50">
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                                <FileText className="h-5 w-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <div className="font-medium text-gray-900">Start Term Evaluation Report</div>
+                                <div className="text-sm text-gray-500">Ready for download</div>
+                              </div>
+                            </div>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => downloadHodEvaluationReport('START')}
+                              disabled={loading}
+                            >
+                              {loading ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4 mr-2" />
+                              )}
+                              {loading ? 'Generating...' : 'Download PDF'}
+                            </Button>
+                          </div>
+                        )}
+                        
+                        {/* End Term Evaluation - Only show if reviewed */}
+                        {hasEndTermReview && (
+                          <div className="flex items-center justify-between p-4 border rounded-lg bg-green-50">
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                                <FileText className="h-5 w-5 text-green-600" />
+                              </div>
+                              <div>
+                                <div className="font-medium text-gray-900">End Term Evaluation Report</div>
+                                <div className="text-sm text-gray-500">Ready for download</div>
+                              </div>
+                            </div>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => downloadHodEvaluationReport('END')}
+                              disabled={loading}
+                            >
+                              {loading ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4 mr-2" />
+                              )}
+                              {loading ? 'Generating...' : 'Download PDF'}
+                            </Button>
+                          </div>
+                        )}
+                        
+                        {/* No evaluations message */}
+                        {!hasStartTermReview && !hasEndTermReview && (
+                          <div className="text-center py-8 text-gray-500">
+                            <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                            <p>No evaluation reports available yet.</p>
+                            <p className="text-sm">Reports will appear here after Dean finalizes your evaluation.</p>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
         </Tabs>
       </DashboardLayout>
     </RoleGuard>
