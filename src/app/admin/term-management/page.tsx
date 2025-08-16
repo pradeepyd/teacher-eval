@@ -129,7 +129,6 @@ export default function TermManagementPage() {
       const data = await response.json()
       setDepartments(data)
     } catch (error) {
-
       setError('Failed to load departments')
     }
   }
@@ -154,6 +153,11 @@ export default function TermManagementPage() {
       return
     }
 
+    if (formData.selectedDepartments.length === 0) {
+      setError('Please select at least one department')
+      return
+    }
+
     // Check if any selected departments already have terms of the same type for the same year
     const conflictingDepartments = formData.selectedDepartments.filter(deptId => {
       const existingTerm = terms.find(term => 
@@ -173,22 +177,44 @@ export default function TermManagementPage() {
       return
     }
 
+    // Additional validation: Check if departments are selected
+    if (formData.selectedDepartments.length === 0) {
+      setError('Please select at least one department')
+      return
+    }
+
+    // Validate dates
+    const startDate = new Date(formData.startDate)
+    const endDate = new Date(formData.endDate)
+    
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      setError('Please enter valid start and end dates')
+      return
+    }
+    
+    if (startDate >= endDate) {
+      setError('End date must be after start date')
+      return
+    }
+
     setSubmitting(true)
     setError(null)
     setSuccess(null)
 
     try {
+      const requestBody = {
+        name: formData.name.trim(),
+        year: parseInt(formData.year),
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        termType: formData.termType,
+        departmentIds: formData.selectedDepartments
+      }
+      
       const response = await fetch('/api/admin/terms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          year: parseInt(formData.year),
-          startDate: formData.startDate,
-          endDate: formData.endDate,
-          termType: formData.termType,
-          departmentIds: formData.selectedDepartments
-        })
+        body: JSON.stringify(requestBody)
       })
 
       if (!response.ok) {
@@ -497,7 +523,10 @@ export default function TermManagementPage() {
             </div>
             <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
               <DialogTrigger asChild>
-                <Button onClick={resetForm}>
+                <Button onClick={() => {
+                  resetForm()
+                  setShowAddModal(true)
+                }}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Term
                 </Button>
@@ -521,17 +550,25 @@ export default function TermManagementPage() {
                     </div>
                   )}
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <label htmlFor="name" className="text-sm font-medium">Term Name</label>
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="e.g., Fall 2024"
-                      disabled={submitting}
-                    />
-                  </div>
+                <form id="term-form" onSubmit={(e) => {
+                  e.preventDefault()
+                  if (editingTerm) {
+                    handleEditTerm()
+                  } else {
+                    handleAddTerm()
+                  }
+                }}>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <label htmlFor="name" className="text-sm font-medium">Term Name</label>
+                      <Input
+                        id="name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        placeholder="e.g., Fall 2024"
+                        disabled={submitting}
+                      />
+                    </div>
                   <div className="grid gap-2">
                     <label htmlFor="year" className="text-sm font-medium">Year</label>
                     <Select 
@@ -572,23 +609,23 @@ export default function TermManagementPage() {
                   </div>
                   <div className="grid gap-2">
                     <label htmlFor="startDate" className="text-sm font-medium">Start Date</label>
-                    <Input
-                      id="startDate"
-                      type="date"
-                      value={formData.startDate}
-                      onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                      disabled={submitting}
-                    />
+                                          <Input
+                        id="startDate"
+                        type="date"
+                        value={formData.startDate}
+                        onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                        disabled={submitting}
+                      />
                   </div>
                   <div className="grid gap-2">
                     <label htmlFor="endDate" className="text-sm font-medium">End Date</label>
-                    <Input
-                      id="endDate"
-                      type="date"
-                      value={formData.endDate}
-                      onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                      disabled={submitting}
-                    />
+                                          <Input
+                        id="endDate"
+                        type="date"
+                        value={formData.endDate}
+                        onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                        disabled={submitting}
+                      />
                   </div>
                   <div className="grid gap-2">
                     <label className="text-sm font-medium">Assign to Departments</label>
@@ -669,11 +706,16 @@ export default function TermManagementPage() {
                     return null
                   })()}
                 </div>
+                </form>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setShowAddModal(false)} disabled={submitting}>
                     Cancel
                   </Button>
-                  <Button onClick={editingTerm ? handleEditTerm : handleAddTerm} disabled={submitting}>
+                  <Button 
+                    type="submit"
+                    form="term-form"
+                    disabled={submitting}
+                  >
                     {submitting ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />

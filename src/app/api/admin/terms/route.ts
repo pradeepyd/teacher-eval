@@ -70,28 +70,23 @@ export async function POST(request: NextRequest) {
     // Check if a term of the same type already exists for the same departments and year
     if (Array.isArray(departmentIds) && departmentIds.length > 0) {
       for (const deptId of departmentIds) {
-        const existingTermState = await prisma.termState.findUnique({
+        // Check if there's already a Term with the same type for this department and year
+        const existingTerm = await prisma.term.findFirst({
           where: {
-            departmentId_year: {
-              departmentId: deptId,
-              year: yearNumber
+            year: yearNumber,
+            status: termType,
+            departments: {
+              some: {
+                id: deptId
+              }
             }
           }
         })
 
-        if (existingTermState) {
-          // Check if the term type already exists and is not completed
-          if (termType === 'START' && existingTermState.startTermVisibility && existingTermState.startTermVisibility !== 'COMPLETE') {
-            return NextResponse.json({ 
-              error: `A START term already exists for department ${deptId} in year ${yearNumber}. Please complete the existing term before creating a new one.` 
-            }, { status: 400 })
-          }
-          
-          if (termType === 'END' && existingTermState.endTermVisibility && existingTermState.endTermVisibility !== 'COMPLETE') {
-            return NextResponse.json({ 
-              error: `An END term already exists for department ${deptId} in year ${yearNumber}. Please complete the existing term before creating a new one.` 
-            }, { status: 400 })
-          }
+        if (existingTerm) {
+          return NextResponse.json({ 
+            error: `A ${termType} term already exists for department ${deptId} in year ${yearNumber}. Please complete the existing term before creating a new one.` 
+          }, { status: 400 })
         }
       }
     }
