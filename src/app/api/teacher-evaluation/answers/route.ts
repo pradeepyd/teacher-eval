@@ -55,7 +55,6 @@ export async function PATCH(request: NextRequest) {
     // Resolve termId for current year/department (best-effort)
     let resolvedTermId: string | null = null
     try {
-      const currentYear = new Date().getFullYear()
       const termMatch = await prisma.term.findFirst({
         where: { year: currentYear, departments: { some: { id: session.user.departmentId || undefined } } },
         select: { id: true },
@@ -64,7 +63,6 @@ export async function PATCH(request: NextRequest) {
     } catch {}
 
     // Upsert each answer (composite unique)
-    const currentYear = new Date().getFullYear()
     await prisma.$transaction(
       answers.map((a: { questionId: string; answer: string }) =>
         prisma.teacherAnswer.upsert({
