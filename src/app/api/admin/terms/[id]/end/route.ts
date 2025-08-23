@@ -73,7 +73,7 @@ export async function POST(
         logger.info(`Updating term state for department ${department.id} to activeTerm: END for year ${currentYear}`, 'admin')
         
         // Check if termState already exists
-        const _existing = await tx.termState.findUnique({
+        await tx.termState.findUnique({
           where: { 
             departmentId_year: {
               departmentId: department.id,
@@ -83,7 +83,7 @@ export async function POST(
         })
         logger.info(`Existing term state for department ${department.id} found`, 'admin')
         
-        const _result = await tx.termState.upsert({
+        await tx.termState.upsert({
           where: { 
             departmentId_year: {
               departmentId: department.id,

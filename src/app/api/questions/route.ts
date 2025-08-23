@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 // @ts-expect-error next-auth v5 types
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { createSuccessResponse, createApiErrorResponse, createUnauthorizedResponse } from '@/lib/api-response'
 import { validateRequestBody, validationSchemas } from '@/lib/api-validation'
-import { batchFetchQuestions } from '@/lib/api-performance'
+
 
 export async function GET(request: NextRequest) {
   try {

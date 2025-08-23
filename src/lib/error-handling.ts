@@ -14,7 +14,7 @@ export interface ErrorContext {
   operation: string
   component?: string
   userId?: string
-  additionalInfo?: Record<string, any>
+  additionalInfo?: Record<string, unknown>
 }
 
 /**

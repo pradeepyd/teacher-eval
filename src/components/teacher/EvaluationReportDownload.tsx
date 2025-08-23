@@ -4,19 +4,19 @@ import { memo, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Loader2, Download, FileText } from 'lucide-react'
-import type { EvaluationStatus, EvaluationReportData } from '@/types/teacher'
+import type { EvaluationStatus } from '@/types/teacher'
 
 interface EvaluationReportDownloadProps {
   evaluationStatus: EvaluationStatus | null
   localLoading: boolean
-  userName?: string
+  _userName?: string
   onDownloadReport: (term: 'START' | 'END') => Promise<void>
 }
 
 function EvaluationReportDownload({
   evaluationStatus,
   localLoading,
-  userName,
+  _userName,
   onDownloadReport
 }: EvaluationReportDownloadProps) {
   const handleDownload = useCallback((term: 'START' | 'END') => {

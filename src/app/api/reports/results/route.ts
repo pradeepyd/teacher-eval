@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
             })
             return total || 50
           }
-        } catch (_e) {
+        } catch {
           // If parsing fails, return default
         }
         return 50 // Default fallback reduced

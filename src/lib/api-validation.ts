@@ -91,7 +91,7 @@ export const validationSchemas = {
 export function validateRequestBody<T>(
   body: unknown,
   schema: z.ZodSchema<T>,
-  context: string
+  _context: string
 ): { success: false; response: Response } | { success: true; data: T } {
   const result = schema.safeParse(body)
   
@@ -117,7 +117,7 @@ export function validateRequestBody<T>(
 export function validateQueryParams<T>(
   params: unknown,
   schema: z.ZodSchema<T>,
-  context: string
+  _context: string
 ): { success: false; response: Response } | { success: true; data: T } {
   const result = schema.safeParse(params)
   
@@ -143,7 +143,7 @@ export function validateQueryParams<T>(
 export function validatePathParams<T>(
   params: unknown,
   schema: z.ZodSchema<T>,
-  context: string
+  _context: string
 ): { success: false; response: Response } | { success: true; data: T } {
   const result = schema.safeParse(params)
   

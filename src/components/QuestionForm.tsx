@@ -102,7 +102,7 @@ export default function QuestionForm({
             <select
               id="type"
               value={type}
-              onChange={(e) => setType(e.target.value as any)}
+              onChange={(e) => setType(e.target.value as 'TEXT' | 'TEXTAREA' | 'MCQ' | 'CHECKBOX')}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             >
               <option value="TEXT">Single Line Text</option>
@@ -119,7 +119,7 @@ export default function QuestionForm({
             <select
               id="term"
               value={term}
-              onChange={(e) => setTerm(e.target.value as any)}
+              onChange={(e) => setTerm(e.target.value as 'START' | 'END')}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               disabled={isEditing}
             >

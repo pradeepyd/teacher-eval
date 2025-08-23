@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { logger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
-  let session: any = null
+  let session = null
   
   try {
     session = await getServerSession(authOptions)

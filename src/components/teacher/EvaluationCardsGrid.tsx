@@ -16,8 +16,8 @@ interface EvaluationCardsGridProps {
 
 function EvaluationCardsGrid({
   evaluationStatus,
-  startData,
-  endData,
+  _startData,
+  _endData,
   startAnswersCount,
   endAnswersCount,
   startQuestionsCount,

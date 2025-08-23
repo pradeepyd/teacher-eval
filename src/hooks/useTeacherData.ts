@@ -61,10 +61,10 @@ interface TeacherData {
   invalidateCache: () => void
   fetchTermData: (term: 'START' | 'END') => Promise<EvaluationData>
   submitAnswers: (answers: TeacherAnswerSubmission[], selfComment: string, term: 'START' | 'END') => Promise<SubmissionResult>
-  getEvaluationReport: (term: 'START' | 'END') => Promise<any>
-  fetchEvaluation: (evaluationId: string) => Promise<any>
+  getEvaluationReport: (term: 'START' | 'END') => Promise<unknown>
+  fetchEvaluation: (evaluationId: string) => Promise<unknown>
   updateEvaluation: (evaluationId: string, data: EvaluationUpdateData) => Promise<EvaluationResult>
-  fetchQuestions: (term: 'START' | 'END') => Promise<any>
+  fetchQuestions: (term: 'START' | 'END') => Promise<unknown>
   updateAnswers: (data: AnswerUpdateData) => Promise<AnswerUpdateResult>
 }
 
@@ -104,7 +104,7 @@ export function useTeacherData(): TeacherData {
     setError(null)
 
     try {
-      const userDepartmentId = (session?.user as any)?.departmentId
+      const userDepartmentId = (session?.user as Record<string, unknown>)?.departmentId
       if (!userDepartmentId) {
         throw new Error('No department ID found')
       }
@@ -186,7 +186,7 @@ export function useTeacherData(): TeacherData {
 
   useEffect(() => {
     // Only fetch if authenticated as teacher and we don't have cached data
-    if (status === 'authenticated' && (session?.user as any)?.role === 'TEACHER' && !globalCache.hasData) {
+    if (status === 'authenticated' && (session?.user as Record<string, unknown>)?.role === 'TEACHER' && !globalCache.hasData) {
       fetchData()
     }
   }, [status, session, fetchData])
@@ -220,12 +220,10 @@ export function useTeacherData(): TeacherData {
     }
   }, [status, invalidateCache])
 
-  // Always return safe default values, even before data is fetched
-  const safeEvaluationStatus = globalCache.evaluationStatus || null
-  const safeTermState = globalCache.termState || null
+
 
   // Validate and sanitize evaluation status data to prevent UI bugs
-  const validateEvaluationStatus = (status: any) => {
+  const validateEvaluationStatus = (status: EvaluationStatus | null) => {
     if (!status) return null
     
     const validated = { ...status }

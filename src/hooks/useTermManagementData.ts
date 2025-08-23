@@ -36,9 +36,9 @@ interface TermManagementData {
   invalidateCache: () => void
   createTerm: (termData: CreateTermRequest) => Promise<Term>
   updateTerm: (termId: string, termData: UpdateTermRequest) => Promise<Term>
-  deleteTerm: (termId: string) => Promise<any>
-  startTerm: (termId: string) => Promise<any>
-  endTerm: (termId: string) => Promise<any>
+  deleteTerm: (termId: string) => Promise<unknown>
+  startTerm: (termId: string) => Promise<unknown>
+  endTerm: (termId: string) => Promise<unknown>
 }
 
 // Global cache for Term Management data - persists until page refresh or logout
@@ -117,7 +117,7 @@ export function useTermManagementData(): TermManagementData {
 
   useEffect(() => {
     // Only fetch if authenticated as Admin and we don't have cached data
-    if (status === 'authenticated' && (session?.user as any)?.role === 'ADMIN' && !globalCache.hasData) {
+    if (status === 'authenticated' && (session?.user as Record<string, unknown>)?.role === 'ADMIN' && !globalCache.hasData) {
       fetchData()
     }
   }, [status, session, fetchData])

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Loader2, Filter, FileText, ArrowLeft, Search, RefreshCw, Circle, Download, Eye } from 'lucide-react'
+import { Loader2, FileText, ArrowLeft, Search, RefreshCw, Circle, Download } from 'lucide-react'
 import { useSession } from 'next-auth/react'
 
 interface EvaluationResult {
@@ -325,15 +325,7 @@ export default function ReportsPage() {
   // Get unique departments for filter
   const uniqueDepartments = Array.from(new Set(evaluationResults.map(r => r.department)))
 
-  // Get status color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'PROMOTED': return 'default'
-      case 'NOT_PROMOTED': return 'destructive'
-      case 'PENDING': return 'secondary'
-      default: return 'outline'
-    }
-  }
+
 
   // Get status text
   const getStatusText = (status: string) => {

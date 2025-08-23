@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -102,7 +102,7 @@ export default function ReviewForm({
           setScores(initialScores)
           setRubricScores({})
         }
-      } catch (error) {
+      } catch {
         setError('Error fetching teacher data')
       } finally {
         setFetchLoading(false)

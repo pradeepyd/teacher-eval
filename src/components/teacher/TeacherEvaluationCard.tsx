@@ -17,7 +17,7 @@ function TeacherEvaluationCard({
   answersCount, 
   status, 
   deadline, 
-  isSubmitted 
+  _isSubmitted 
 }: EvaluationCardProps) {
   // Ensure answersCount never exceeds questionsCount and progress is capped at 100%
   const safeAnswersCount = Math.min(answersCount, questionsCount)
@@ -49,7 +49,7 @@ function TeacherEvaluationCard({
             <CardDescription>{subtitle}</CardDescription>
             </div>
           </div>
-                <Badge className={submitted ? 'bg-emerald-100 text-emerald-700' : status==='IN_PROGRESS' ? 'bg-amber-100 text-amber-700' : status==='NOT_STARTED' ? 'bg-rose-100 text-rose-700' : ''} variant={statusMap[status]?.color as any || 'secondary'}>
+                <Badge className={submitted ? 'bg-emerald-100 text-emerald-700' : status==='IN_PROGRESS' ? 'bg-amber-100 text-amber-700' : status==='NOT_STARTED' ? 'bg-rose-100 text-rose-700' : ''} variant={statusMap[status]?.color || 'secondary'}>
             {statusMap[status]?.label || status}
           </Badge>
         </div>

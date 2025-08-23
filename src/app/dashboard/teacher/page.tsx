@@ -158,7 +158,16 @@ function TeacherDashboard() {
 
     try {
       // Fetch evaluation data for the specific term
-      const data = await getEvaluationReport(term)
+      const data = await getEvaluationReport(term) as {
+        hodComment?: string;
+        hodScore?: number;
+        hodTotalScore?: number;
+        asstDeanComment?: string;
+        asstDeanScore?: number;
+        deanComment?: string;
+        finalScore?: number;
+        promoted?: boolean;
+      }
        
       // Generate PDF using jsPDF
       const { jsPDF } = await import('jspdf')
@@ -330,7 +339,7 @@ function TeacherDashboard() {
             <EvaluationReportDownload
               evaluationStatus={evaluationStatus}
               localLoading={localLoading}
-              userName={userName}
+              _userName={userName}
               onDownloadReport={downloadEvaluationReport}
             />
           </DataErrorBoundary>

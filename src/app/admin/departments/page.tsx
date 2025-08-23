@@ -19,22 +19,7 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
 import { useAdminData } from '@/hooks/useAdminData'
 
-interface Department {
-  id: string
-  name: string
-  termStates?: {
-    activeTerm: 'START' | 'END'
-  }[]
-  _count: {
-    users: number
-  }
-  createdAt: string
-  updatedAt: string
-  hod?: {
-    id: string
-    name: string
-  }
-}
+
 
 function DepartmentsPageContent() {
   const { data: session } = useSession()
@@ -199,7 +184,7 @@ function DepartmentsPageContent() {
   }
 
   // Open edit modal
-  const openEditModal = (dept: any) => {
+  const openEditModal = (dept: Record<string, unknown>) => {
     setEditingId(safeString(dept.id))
     setEditingName(safeString(dept.name))
   }

@@ -6,7 +6,7 @@ export interface ApiError {
   message: string
   code?: string
   status?: number
-  details?: any
+  details?: unknown
 }
 
 export class ApiErrorHandler {

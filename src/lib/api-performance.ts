@@ -38,7 +38,7 @@ export async function batchFetchByIds<T extends { id: string }>(
 export async function batchFetchByField<T>(
   model: any,
   field: string,
-  values: any[],
+  values: unknown[],
   include?: any
 ): Promise<T[]> {
   if (!values.length) return []

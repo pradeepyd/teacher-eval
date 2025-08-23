@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user || session.user.role !== 'ADMIN') {
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
         terms: currentYearTerms.map(t => ({ id: t.id, name: t.name, year: t.year }))
       })
 
-    let evaluations: any[] = []
+    let evaluations: Record<string, unknown>[] = []
 
     if (currentYearTerms.length > 0) {
       // Fetch teacher final reviews (teachers finalized by dean)

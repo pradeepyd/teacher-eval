@@ -29,17 +29,14 @@ interface TeacherResult {
   createdAt: string
 }
 
-interface Department {
-  id: string
-  name: string
-}
+
 
 function ResultsPageContent() {
   const { departments, loading, error, fetchResultsForDepartment } = useResultsData()
   const [selectedDept, setSelectedDept] = useState<string>('')
   const [selectedYear, setSelectedYear] = useState<string>('')
   const [results, setResults] = useState<TeacherResult[]>([])
-  const [localLoading, setLocalLoading] = useState(false)
+
   const [localError, setLocalError] = useState('')
 
   // Generate years for dropdown (current year and 5 years back)
@@ -64,20 +61,19 @@ function ResultsPageContent() {
   const fetchResults = async () => {
     if (!selectedDept || !selectedYear) return
     
-    setLocalLoading(true)
     setLocalError('')
     
     try {
-      const data = await fetchResultsForDepartment(selectedDept, selectedYear)
+      const data = await fetchResultsForDepartment(selectedDept, selectedYear) as {
+        results?: TeacherResult[];
+      }
       setResults(data.results || [])
-    } catch (err) {
+    } catch {
       setLocalError('Error fetching results')
-    } finally {
-      setLocalLoading(false)
     }
   }
 
-  const exportPDF = (teacher: TeacherResult) => {
+  const exportPDF = (_teacher: TeacherResult) => {
     // Placeholder for PDF export functionality
     
   }

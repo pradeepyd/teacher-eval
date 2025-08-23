@@ -9,7 +9,7 @@ interface TeacherWelcomeCardProps {
   userName?: string
   departmentName?: string
   evaluationStatus: EvaluationStatus | null
-  departmentStates: Record<string, any>
+  departmentStates: Record<string, unknown>
   departmentId?: string
 }
 

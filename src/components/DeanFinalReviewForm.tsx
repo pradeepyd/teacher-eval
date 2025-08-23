@@ -109,7 +109,7 @@ export default function DeanFinalReviewForm({
           // Initialize with average score as starting point
           setFinalScore(data.scoringSummary.averageScore)
         }
-      } catch (error) {
+      } catch {
         setError('Failed to load teacher data')
         toast.error('Failed to load teacher data')
       } finally {

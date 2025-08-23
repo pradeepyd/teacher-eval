@@ -44,7 +44,7 @@ interface Term {
 
 export default function TermManagementPage() {
   const { data: session } = useSession()
-  const { terms, departments, loading, error, refetch, createTerm, updateTerm, deleteTerm, startTerm, endTerm } = useTermManagementData()
+  const { terms, departments, loading, error, createTerm, updateTerm, deleteTerm, startTerm, endTerm } = useTermManagementData()
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)

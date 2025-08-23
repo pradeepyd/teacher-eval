@@ -22,7 +22,7 @@ export interface ApiErrorResponse {
   message: string
   timestamp: string
   statusCode: number
-  details?: any
+  details?: unknown
 }
 
 /**

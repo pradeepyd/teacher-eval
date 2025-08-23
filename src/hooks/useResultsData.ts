@@ -41,7 +41,7 @@ interface ResultsDataHook {
   error: string | null
   refetch: () => void
   invalidateCache: () => void
-  fetchResultsForDepartment: (departmentId: string, year: string) => Promise<any>
+  fetchResultsForDepartment: (departmentId: string, year: string) => Promise<unknown>
 }
 
 // Global cache for Results data - persists until page refresh or logout
@@ -150,7 +150,6 @@ export function useResultsData(): ResultsDataHook {
 
   // Always return safe default values, even before data is fetched
   const safeDepartments = Array.isArray(globalCache.departments) ? globalCache.departments : []
-  const safeResults = globalCache.results || {}
 
   return {
     departments: safeDepartments,

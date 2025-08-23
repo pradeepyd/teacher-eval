@@ -15,11 +15,11 @@ interface Question {
 interface EvaluationFormProps {
   term: 'START' | 'END'
   onSubmit: (answers: { questionId: string; answer: string }[], selfComment: string) => void
-  onCancel: () => void
+  _onCancel: () => void
   loading?: boolean
 }
 
-export default function EvaluationForm({ term, onSubmit, onCancel, loading = false }: EvaluationFormProps) {
+export default function EvaluationForm({ term, onSubmit, _onCancel, loading = false }: EvaluationFormProps) {
   const [questions, setQuestions] = useState<Question[]>([])
   const [answers, setAnswers] = useState<{ [key: string]: string }>({})
   const [selfComment, setSelfComment] = useState('')
@@ -85,7 +85,7 @@ export default function EvaluationForm({ term, onSubmit, onCancel, loading = fal
     autosaveTimerRef.current = setTimeout(async () => {
       try {
         setAutosaveStatus('saving')
-        const body: any = { term }
+        const body: Record<string, unknown> = { term }
         if (latestPayloadRef.current.answers) body.answers = latestPayloadRef.current.answers
         if (typeof latestPayloadRef.current.selfComment === 'string') body.selfComment = latestPayloadRef.current.selfComment
         if (body.answers || typeof body.selfComment === 'string') {

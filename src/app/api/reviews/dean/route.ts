@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json(teachersWithAsstReviews)
-  } catch (error) {
+  } catch {
     logger.error('Error fetching Dean reviews', 'api', undefined, 'FETCH_DEAN_REVIEWS_ERROR')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -232,7 +232,7 @@ export async function POST(request: NextRequest) {
       if (finalizedTeachersInDept >= totalTeachersInDept) {
         logger.info(`Dean API - Marking term as COMPLETE for department ${teacher.departmentId}, term ${term}`, 'api', undefined, 'TERM_COMPLETE')
         
-        const updateResult = await prisma.termState.updateMany({
+        await prisma.termState.updateMany({
           where: {
             departmentId: teacher.departmentId,
             year: new Date().getFullYear()
@@ -262,7 +262,7 @@ export async function POST(request: NextRequest) {
       message: 'Dean review submitted successfully',
       review 
     })
-  } catch (error) {
+  } catch {
     logger.error('Error submitting Dean review', 'api', undefined, 'DEAN_REVIEW_ERROR')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

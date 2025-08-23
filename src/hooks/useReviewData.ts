@@ -55,7 +55,7 @@ const globalCache: {
 }
 
 export function useReviewData(): ReviewData {
-  const { data: session, status } = useSession()
+  const { status } = useSession()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
