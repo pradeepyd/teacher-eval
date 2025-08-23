@@ -81,6 +81,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'hodId and valid term are required' }, { status: 400 })
     }
 
+    // Check if Assistant Dean has completed their review for this HOD
+    const asstDeanReview = await prisma.hodPerformanceReview.findFirst({
+      where: {
+        hodId,
+        term,
+        year: new Date().getFullYear(),
+        reviewer: {
+          role: 'ASST_DEAN'
+        },
+        submitted: true
+      }
+    })
+
+    if (!asstDeanReview) {
+      return NextResponse.json({ 
+        error: 'Assistant Dean review must be completed before Dean can review this HOD' 
+      }, { status: 400 })
+    }
+
     // Use the provided totalScore or default to null
     // Ensure totalScore is within 0-100 range (percentage)
     let computedTotal = typeof totalScore === 'number' ? totalScore : null

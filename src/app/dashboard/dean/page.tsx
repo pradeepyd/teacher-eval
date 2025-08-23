@@ -397,13 +397,13 @@ function DeanDashboardContent() {
   }
 
   // Show loading state while data is being fetched
-  if (hodLoading) {
+  if (hodLoading && hods.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
-    )
-  }
+      )
+    }
 
   return (
     <RoleGuard allowedRoles={['DEAN']}>
@@ -463,8 +463,28 @@ function DeanDashboardContent() {
               {hodLoading ? (
                 <div className="text-sm text-gray-500 flex items-center"><Loader2 className="w-4 h-4 animate-spin mr-2"/>Loading HODs...</div>
               ) : (
-                <div className="space-y-3">
-                  {safeHods.map((h: HodView) => (
+                <>
+                  {/* HOD Status Summary */}
+                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <div className="text-sm text-blue-800">
+                      <strong>HOD Review Status:</strong> {(() => {
+                        const totalHods = safeHods.length
+                        const finalized = safeHods.filter(h => h.reviews.find(r => r.reviewer.role === 'DEAN')).length
+                        const readyForReview = safeHods.filter(h => 
+                          h.reviews.find(r => r.reviewer.role === 'ASST_DEAN') && 
+                          !h.reviews.find(r => r.reviewer.role === 'DEAN')
+                        ).length
+                        const waitingForAsstDean = safeHods.filter(h => 
+                          !h.reviews.find(r => r.reviewer.role === 'ASST_DEAN')
+                        ).length
+                        
+                        return `${finalized} finalized, ${readyForReview} ready for review, ${waitingForAsstDean} waiting for Assistant Dean review`
+                      })()}
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {safeHods.map((h: HodView) => (
                     <div key={h.id} className="border rounded-lg">
                       <Accordion type="single" collapsible className="w-full">
                         <AccordionItem value={`hod-${h.id}`} className="border-0">
@@ -477,10 +497,14 @@ function DeanDashboardContent() {
                               <div className="flex items-center gap-2">
                                 {(() => {
                                   const deanReview = h.reviews.find(r => r.reviewer.role === 'DEAN')
+                                  const asstDeanReview = h.reviews.find(r => r.reviewer.role === 'ASST_DEAN')
+                                  
                                   if (deanReview) {
                                     return <Badge className="bg-blue-700 text-white">Finalized</Badge>
+                                  } else if (asstDeanReview) {
+                                    return <Badge className="bg-green-100 text-green-800">Ready for Review</Badge>
                                   } else {
-                                    return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
+                                    return <Badge className="bg-yellow-100 text-yellow-800">Waiting for Asst. Dean</Badge>
                                   }
                                 })()}
                               </div>
@@ -590,24 +614,52 @@ function DeanDashboardContent() {
                             
                             return (
                               <>
+                                {(() => {
+                                  const asstDeanReview = h.reviews.find((r: HodReviewView) => r.reviewer.role === 'ASST_DEAN')
+                                  if (!asstDeanReview) {
+                                    return (
+                                      <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                                        <div className="text-sm text-red-800">
+                                          <strong>⚠️ Cannot Review:</strong> Assistant Dean must complete their review before Dean can evaluate this HOD.
+                                        </div>
+                                      </div>
+                                    )
+                                  }
+                                  return null
+                                })()}
                                 <div className="text-sm font-medium">Dean Final Review (HOD) — Term: {hodTerm}</div>
-                                <div>
+                                                                <div>
                                   <label className="text-sm font-medium">Final Comments</label>
                                   <Textarea
                                     value={hodFinalComment}
                                     onChange={(e) => setHodFinalComment(e.target.value)}
                                     placeholder="Enter your final comments..."
+                                    disabled={!h.reviews.find((r: HodReviewView) => r.reviewer.role === 'ASST_DEAN')}
                                   />
                                 </div>
-                                                                 <div>
+                                 <div>
                                    <label className="text-sm font-medium">Final Score (1-100)</label>
                                    <Input
                                      type="number"
                                      min={1}
                                      max={100}
                                      value={hodFinalScore ?? ''}
-                                     onChange={(e) => setHodFinalScore(parseInt(e.target.value) || 0)}
+                                     onChange={(e) => {
+                                       const value = parseInt(e.target.value) || 0
+                                       // Clamp value to 1-100 range
+                                       const clampedValue = Math.max(1, Math.min(100, value))
+                                       setHodFinalScore(clampedValue)
+                                     }}
+                                     onBlur={(e) => {
+                                       const value = parseInt(e.target.value) || 0
+                                       // Ensure value is within range on blur
+                                       if (value < 1 || value > 100) {
+                                         const clampedValue = Math.max(1, Math.min(100, value))
+                                         setHodFinalScore(clampedValue)
+                                       }
+                                     }}
                                      className="w-32"
+                                     disabled={!h.reviews.find((r: HodReviewView) => r.reviewer.role === 'ASST_DEAN')}
                                    />
                                    <p className="text-xs text-gray-500 mt-1">
                                      Enter a score between 1-100 (this will be stored as a percentage)
@@ -634,7 +686,7 @@ function DeanDashboardContent() {
                                         ? 'bg-green-600 hover:bg-green-700' 
                                         : 'bg-amber-600 hover:bg-amber-700'
                                     }`}
-                                    disabled={finalizingHodId === openHodFinalId}
+                                    disabled={finalizingHodId === openHodFinalId || !hodFinalComment.trim() || !hodFinalScore}
                                     onClick={async () => {
                                       if (!openHodFinalId) return
                                       setFinalizingHodId(openHodFinalId)
@@ -691,6 +743,7 @@ function DeanDashboardContent() {
                     <div className="text-sm text-gray-500">No HODs found.</div>
                   )}
                 </div>
+                  </>
               )}
             </CardContent>
           </Card>
