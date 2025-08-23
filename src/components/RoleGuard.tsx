@@ -3,6 +3,8 @@
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
+import type { SessionUser } from '@/types/api'
+import { PageErrorBoundary } from '@/components/ErrorBoundary'
 
 interface RoleGuardProps {
   allowedRoles: string[]
@@ -10,7 +12,7 @@ interface RoleGuardProps {
   fallback?: React.ReactNode
 }
 
-export default function RoleGuard({ 
+function RoleGuardContent({ 
   allowedRoles, 
   children, 
   fallback = <div>Access denied. You don&apos;t have permission to view this page.</div> 
@@ -26,7 +28,8 @@ export default function RoleGuard({
       return
     }
 
-    if (!allowedRoles.includes(((session.user as any) || {}).role)) {
+    const userRole = (session.user as SessionUser)?.role
+    if (!userRole || !allowedRoles.includes(userRole)) {
       router.push('/unauthorized')
       return
     }
@@ -40,9 +43,18 @@ export default function RoleGuard({
     )
   }
 
-  if (!session || !allowedRoles.includes(((session.user as any) || {}).role)) {
+  const userRole = (session?.user as SessionUser)?.role
+  if (!session || !userRole || !allowedRoles.includes(userRole)) {
     return <>{fallback}</>
   }
 
   return <>{children}</>
+}
+
+export default function RoleGuard(props: RoleGuardProps) {
+  return (
+    <PageErrorBoundary pageName="Role Guard">
+      <RoleGuardContent {...props} />
+    </PageErrorBoundary>
+  )
 }

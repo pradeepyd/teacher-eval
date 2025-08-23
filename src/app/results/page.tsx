@@ -10,6 +10,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FileDown, Download, BarChart3 } from 'lucide-react'
+import { useResultsData } from '@/hooks/useResultsData'
+import { PageErrorBoundary } from '@/components/ErrorBoundary'
 
 interface TeacherResult {
   id: string
@@ -32,13 +34,13 @@ interface Department {
   name: string
 }
 
-export default function ResultsPage() {
-  const [departments, setDepartments] = useState<Department[]>([])
+function ResultsPageContent() {
+  const { departments, loading, error, fetchResultsForDepartment } = useResultsData()
   const [selectedDept, setSelectedDept] = useState<string>('')
   const [selectedYear, setSelectedYear] = useState<string>('')
   const [results, setResults] = useState<TeacherResult[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [localLoading, setLocalLoading] = useState(false)
+  const [localError, setLocalError] = useState('')
 
   // Generate years for dropdown (current year and 5 years back)
   const years = Array.from({ length: 6 }, (_, i) => {
@@ -47,26 +49,11 @@ export default function ResultsPage() {
   })
 
   useEffect(() => {
-    const fetchDepartments = async () => {
-      try {
-        const res = await fetch('/api/departments')
-        if (res.ok) {
-          const data = await res.json()
-          setDepartments(data)
-          if (data.length > 0) setSelectedDept(data[0].id)
-        } else {
-          setError('Failed to fetch departments')
-        }
-      } catch (err) {
-        setError('Error fetching departments')
-      } finally {
-        setLoading(false)
-      }
+    if (departments.length > 0 && !selectedDept) {
+      setSelectedDept(departments[0].id)
     }
-
-    fetchDepartments()
     setSelectedYear(new Date().getFullYear().toString())
-  }, [])
+  }, [departments, selectedDept])
 
   useEffect(() => {
     if (selectedDept && selectedYear) {
@@ -75,16 +62,18 @@ export default function ResultsPage() {
   }, [selectedDept, selectedYear])
 
   const fetchResults = async () => {
+    if (!selectedDept || !selectedYear) return
+    
+    setLocalLoading(true)
+    setLocalError('')
+    
     try {
-      const res = await fetch(`/api/reports/results?departmentId=${selectedDept}&year=${selectedYear}`)
-      if (res.ok) {
-        const data = await res.json()
-        setResults(data)
-      } else {
-        setError('Failed to fetch results')
-      }
+      const data = await fetchResultsForDepartment(selectedDept, selectedYear)
+      setResults(data.results || [])
     } catch (err) {
-      setError('Error fetching results')
+      setLocalError('Error fetching results')
+    } finally {
+      setLocalLoading(false)
     }
   }
 
@@ -214,10 +203,10 @@ export default function ResultsPage() {
           )}
 
           {/* Error Display */}
-          {error && (
+          {(error || localError) && (
             <Card className="border-red-200 bg-red-50">
               <CardContent className="pt-6">
-                <p className="text-red-600">{error}</p>
+                <p className="text-red-600">{error || localError}</p>
               </CardContent>
             </Card>
           )}
@@ -343,5 +332,13 @@ export default function ResultsPage() {
         </div>
       </DashboardLayout>
     </RoleGuard>
+  )
+}
+
+export default function ResultsPage() {
+  return (
+    <PageErrorBoundary pageName="Results Page">
+      <ResultsPageContent />
+    </PageErrorBoundary>
   )
 }

@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+
 import { useSession } from 'next-auth/react'
 import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
+import { PageErrorBoundary, DataErrorBoundary } from '@/components/ErrorBoundary'
+import { safeArray, safeNumber, safeDepartment, safeActivity } from '@/lib/safe-access'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,108 +15,73 @@ import {
   Building2, 
   Calendar, 
   BarChart3, 
-  UserCheck, 
-
   BookOpen,
   TrendingUp,
-  Activity
+  Activity,
+  Loader2
 } from 'lucide-react'
+import { useAdminData } from '@/hooks/useAdminData'
 
-interface DashboardStats {
-  totalUsers: number
-  totalTeachers: number
-  totalDepartments: number
-  activeEvaluations: number
-  completedReviews: number
-  pendingReviews: number
-}
 
-interface DepartmentTerm {
-  id: string
-  name: string
-  activeTerm: 'START' | 'END'
-}
 
-export default function AdminDashboard() {
+function AdminDashboardContent() {
   const { data: session, status } = useSession()
-  const [stats, setStats] = useState<DashboardStats>({
-    totalUsers: 0,
-    totalTeachers: 0,
-    totalDepartments: 0,
-    activeEvaluations: 0,
-    completedReviews: 0,
-    pendingReviews: 0
-  })
-  const [departments, setDepartments] = useState<DepartmentTerm[]>([])
-  const [loading, setLoading] = useState(true)
-  const [activities, setActivities] = useState<{
-    id: string;
-    type: string;
-    message: string;
-    department?: string | null;
-    timestamp: string;
-  }[]>([])
-
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        // Fetch users and departments data
-        const [usersResponse, deptResponse, activityResponse] = await Promise.all([
-          fetch('/api/admin/users'),
-          fetch('/api/departments'),
-          fetch('/api/admin/activity')
-        ])
-
-        if (!usersResponse.ok || !deptResponse.ok || !activityResponse.ok) {
-          throw new Error('Failed to load dashboard data')
-        }
-
-        const usersJson = await usersResponse.json()
-        const deptsJson = await deptResponse.json()
-        const activityJson = await activityResponse.json()
-
-        const users = Array.isArray(usersJson.users) ? usersJson.users : []
-        const depts = Array.isArray(deptsJson.departments) ? deptsJson.departments : []
-
-        setStats({
-          totalUsers: users.length,
-          totalTeachers: users.filter((u: any) => u.role === 'TEACHER').length,
-          totalDepartments: depts.length,
-          activeEvaluations: Math.floor(users.length * 0.6),
-          completedReviews: Math.floor(users.length * 0.4),
-          pendingReviews: Math.floor(users.length * 0.2)
-        })
-
-        setDepartments(
-          depts.map((d: any) => ({
-            id: d.id,
-            name: d.name,
-            activeTerm: d.termState?.activeTerm || 'START'
-          }))
-        )
-
-        setActivities(Array.isArray(activityJson.activities) ? activityJson.activities : [])
-      } catch (error) {
+  const hookData = useAdminData()
   
-      } finally {
-        setLoading(false)
-      }
-    }
+  // Safe data access with comprehensive error handling
+  const safeHookData = hookData || {}
+  const { 
+    stats = {
+      totalUsers: 0,
+      totalTeachers: 0,
+      totalDepartments: 0,
+      activeEvaluations: 0,
+      completedReviews: 0,
+      pendingReviews: 0
+    }, 
+    departments = [], 
+    activities = [], 
+    loading = false 
+  } = safeHookData
+  
+  // Apply safe transformations to all data
+  const safeDepartments = safeArray(departments).map(dept => safeDepartment(dept))
+  const safeActivities = safeArray(activities).map(activity => safeActivity(activity))
+  const safeStats = {
+    totalUsers: safeNumber(stats.totalUsers),
+    totalTeachers: safeNumber(stats.totalTeachers),
+    totalDepartments: safeNumber(stats.totalDepartments),
+    activeEvaluations: safeNumber(stats.activeEvaluations),
+    completedReviews: safeNumber(stats.completedReviews),
+    pendingReviews: safeNumber(stats.pendingReviews)
+  }
 
-    if (status === 'authenticated' && (session?.user as any)?.role === 'ADMIN') {
-      fetchDashboardData()
-    }
-  }, [status, session])
-
-  if (loading || status === 'loading') {
+  // Comprehensive loading and safety checks
+  if (status === 'loading') {
     return (
-      <RoleGuard allowedRoles={['ADMIN']}>
-        <DashboardLayout title="Admin Dashboard" showBack={false}>
-          <div className="flex items-center justify-center min-h-[400px]">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-          </div>
-        </DashboardLayout>
-      </RoleGuard>
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    )
+  }
+
+  if (!session?.user) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">Please log in to access the admin dashboard.</p>
+          <Loader2 className="w-8 h-8 animate-spin mx-auto" />
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading state while data is being fetched
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
     )
   }
 
@@ -130,7 +97,7 @@ export default function AdminDashboard() {
                 <Users className="h-5 w-5 text-blue-600 group-hover:scale-110 transition-transform" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-blue-600">{stats.totalUsers}</div>
+                <div className="text-2xl font-bold text-blue-600">{safeStats.totalUsers}</div>
                 <CardDescription>Total system users</CardDescription>
                 <Link href="/admin/users">
                   <Button variant="outline" size="sm" className="mt-3 w-full">
@@ -146,7 +113,7 @@ export default function AdminDashboard() {
                 <Building2 className="h-5 w-5 text-green-600 group-hover:scale-110 transition-transform" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-600">{stats.totalDepartments}</div>
+                <div className="text-2xl font-bold text-green-600">{safeStats.totalDepartments}</div>
                 <CardDescription>Active departments</CardDescription>
                 <Link href="/admin/departments">
                   <Button variant="outline" size="sm" className="mt-3 w-full">
@@ -163,7 +130,9 @@ export default function AdminDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-orange-600">
-                  {departments.filter(d => d.activeTerm === 'START').length}
+                  {safeDepartments.filter(d => 
+                    d.termStates?.some(ts => ts.activeTerm === 'START')
+                  ).length}
                 </div>
                 <CardDescription>Active terms</CardDescription>
                 <Link href="/admin/term-management">
@@ -180,7 +149,7 @@ export default function AdminDashboard() {
                 <BarChart3 className="h-5 w-5 text-purple-600 group-hover:scale-110 transition-transform" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-purple-600">{stats.completedReviews}</div>
+                <div className="text-2xl font-bold text-purple-600">{safeStats.completedReviews}</div>
                 <CardDescription>Completed reviews</CardDescription>
                 <Link href="/reports">
                   <Button variant="outline" size="sm" className="mt-3 w-full">
@@ -201,15 +170,15 @@ export default function AdminDashboard() {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Total Users</span>
-                  <span className="text-lg font-semibold">{stats.totalUsers}</span>
+                  <span className="text-lg font-semibold">{safeStats.totalUsers}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Teachers</span>
-                  <Badge variant="secondary">{stats.totalTeachers}</Badge>
+                  <Badge variant="secondary">{safeStats.totalTeachers}</Badge>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Departments</span>
-                  <Badge variant="outline">{stats.totalDepartments}</Badge>
+                  <Badge variant="outline">{safeStats.totalDepartments}</Badge>
                 </div>
               </CardContent>
             </Card>
@@ -222,15 +191,15 @@ export default function AdminDashboard() {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Active Evaluations</span>
-                  <span className="text-lg font-semibold text-blue-600">{stats.activeEvaluations}</span>
+                  <span className="text-lg font-semibold text-blue-600">{safeStats.activeEvaluations}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Completed</span>
-                  <Badge className="bg-green-100 text-green-800">{stats.completedReviews}</Badge>
+                  <Badge className="bg-green-100 text-green-800">{safeStats.completedReviews}</Badge>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Pending</span>
-                  <Badge variant="destructive">{stats.pendingReviews}</Badge>
+                  <Badge variant="destructive">{safeStats.pendingReviews}</Badge>
                 </div>
               </CardContent>
             </Card>
@@ -241,22 +210,26 @@ export default function AdminDashboard() {
                 <BookOpen className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent className="space-y-3">
-                {departments.slice(0, 4).map((dept) => (
-                  <div key={dept.id} className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground truncate">{dept.name}</span>
-                    <Badge 
-                      variant={dept.activeTerm === 'START' ? 'default' : 'secondary'}
-                      className={dept.activeTerm === 'START' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}
-                    >
-                      {dept.activeTerm}
-                    </Badge>
-                  </div>
-                ))}
-                {departments.length > 4 && (
+                {safeDepartments.slice(0, 4).map((dept) => {
+                  const activeTerm = dept.termStates?.find(ts => ts.activeTerm === 'START')?.activeTerm
+                  
+                  return (
+                    <div key={dept.id} className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground truncate">{dept.name}</span>
+                      <Badge 
+                        variant={activeTerm ? 'default' : 'secondary'}
+                        className={activeTerm ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}
+                      >
+                        {activeTerm || 'No Term'}
+                      </Badge>
+                    </div>
+                  )
+                })}
+                {safeDepartments.length > 4 && (
                   <div className="text-center pt-2">
                     <Link href="/admin/term-management">
                       <Button variant="ghost" size="sm">
-                        View All ({departments.length})
+                        View All ({safeDepartments.length})
                       </Button>
                     </Link>
                   </div>
@@ -265,43 +238,56 @@ export default function AdminDashboard() {
             </Card>
           </div>
 
-          {/* Recent Activity */}
+
+
+
+
+          {/* Recent Activities */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <UserCheck className="h-5 w-5" />
-                Recent System Activity
+                <Activity className="h-5 w-5" />
+                Recent Activities
               </CardTitle>
               <CardDescription>
-                Latest actions and updates in the evaluation system
+                Latest system activities and updates
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {activities.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No recent activity</div>
-                ) : (
-                  activities.map((a) => (
-                    <div key={a.id} className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                      <div className={`w-2 h-2 rounded-full ${
-                        a.type === 'SELF_SUBMITTED' ? 'bg-green-500' :
-                        a.type === 'HOD_REVIEW' ? 'bg-blue-500' :
-                        a.type === 'TERM_UPDATE' ? 'bg-orange-500' : 'bg-gray-400'
-                      }`}></div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">{a.message}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {a.department ? `${a.department} • ` : ''}{new Date(a.timestamp).toLocaleString()}
-                        </p>
+              <div className="space-y-3">
+                {safeActivities.map((activity) => (
+                  <div key={activity.id} className="flex items-start gap-3 p-3 border rounded-lg">
+                    <div className="w-2 h-2 bg-primary rounded-full mt-2 flex-shrink-0"></div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{activity.message}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        {activity.department && (
+                          <Badge variant="outline" className="text-xs">
+                            {activity.department}
+                          </Badge>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(activity.timestamp).toLocaleDateString()}
+                        </span>
                       </div>
                     </div>
-                  ))
-                )}
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
         </div>
       </DashboardLayout>
     </RoleGuard>
+  )
+}
+
+export default function AdminDashboard() {
+  return (
+    <PageErrorBoundary pageName="Admin Dashboard">
+      <DataErrorBoundary dataType="admin dashboard data">
+        <AdminDashboardContent />
+      </DataErrorBoundary>
+    </PageErrorBoundary>
   )
 }

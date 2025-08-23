@@ -91,6 +91,19 @@ export async function DELETE(
       return NextResponse.json({ error: 'Term not found' }, { status: 404 })
     }
 
+    // Delete related TermState records first
+    await prisma.termState.deleteMany({
+      where: {
+        department: {
+          terms: {
+            some: {
+              id: resolvedParams.id
+            }
+          }
+        }
+      }
+    })
+
     // Delete term
     await prisma.term.delete({
       where: { id: resolvedParams.id }

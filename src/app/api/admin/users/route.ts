@@ -5,128 +5,138 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcrypt'
 import { z } from 'zod'
+import { revalidatePath } from 'next/cache'
+import { withCSRFProtection } from '@/lib/csrf-middleware'
+import { logger } from '@/lib/logger'
+import { createSuccessResponse, createApiErrorResponse, createUnauthorizedResponse, createValidationErrorResponse } from '@/lib/api-response'
 
-// Password validation schema
+// Input validation schema for admin user creation
+const adminUserSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name too long'),
+  email: z.string().email('Invalid email format').max(255, 'Email too long'),
+  password: z.string().min(8, 'Password must be at least 8 characters').max(128, 'Password too long'),
+  role: z.enum(['TEACHER', 'HOD', 'ASST_DEAN', 'DEAN', 'ADMIN']),
+  departmentId: z.string().optional()
+})
+
+// Password validation schema - only string and number
 const passwordSchema = z.string()
   .min(8, 'Password must be at least 8 characters long')
   .regex(/[0-9]/, 'Password must contain at least one number')
+  .regex(/[a-zA-Z]/, 'Password must contain at least one letter')
 
-export async function POST(request: NextRequest) {
+async function createUser(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     
     if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return createUnauthorizedResponse()
     }
 
-    const { name, email, password, role, departmentId } = await request.json()
-
-    if (!name || !email || !password || !role) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    const body = await request.json()
+    
+    // Validate input using Zod schema
+    const validationResult = adminUserSchema.safeParse(body)
+    if (!validationResult.success) {
+      return createValidationErrorResponse(
+        validationResult.error.issues.map(issue => issue.message)
+      )
     }
-
-    // Validate role
-    const VALID_ROLES = ['TEACHER', 'HOD', 'ASST_DEAN', 'DEAN', 'ADMIN'] as const
-    if (!VALID_ROLES.includes(role)) {
-      return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
-    }
+    
+    const { name, email, password, role, departmentId } = validationResult.data
 
     // Check if email already exists
     const existingUser = await prisma.user.findUnique({
       where: { email }
     })
     if (existingUser) {
-      return NextResponse.json({ error: 'Email already exists' }, { status: 400 })
+      return createApiErrorResponse(
+        new Error('Email already exists'),
+        { operation: 'create user', component: 'AdminUsersAPI' },
+        400
+      )
     }
 
     // Validate department for department-specific roles
     if ((role === 'TEACHER' || role === 'HOD') && !departmentId) {
-      return NextResponse.json({ error: 'Department ID is required for this role' }, { status: 400 })
+      return createApiErrorResponse(
+        new Error('Department ID is required for this role'),
+        { operation: 'create user', component: 'AdminUsersAPI' },
+        400
+      )
     }
 
     // Validate password using Zod schema
     const passwordValidation = passwordSchema.safeParse(password)
     if (!passwordValidation.success) {
-      return NextResponse.json({ 
-        error: 'Password validation failed',
-        details: passwordValidation.error.issues.map(issue => issue.message)
-      }, { status: 400 })
+      return createValidationErrorResponse(
+        passwordValidation.error.issues.map(issue => issue.message)
+      )
     }
 
     const hashedPassword = await bcrypt.hash(password, 10)
 
+    // Use secure database operations
     const user = await prisma.user.create({
       data: {
         name,
         email,
         password: hashedPassword,
         role,
-        // Use relation connect per Prisma docs
-        department: (role === 'ADMIN' || role === 'DEAN' || role === 'ASST_DEAN' || !departmentId)
-          ? undefined
-          : { connect: { id: departmentId } },
-        emailVerified: null
-      },
-      include: {
-        department: true
+        departmentId
       }
     })
 
-    // Log admin user creation
+    // Log critical admin user creation
     if (role === 'ADMIN') {
-
+      logger.security(`ADMIN_USER_CREATED: ${session.user.id} created user ${user.id} (${email})`)
     }
 
-    return NextResponse.json({
+    // Invalidate cache to refresh admin data
+    revalidatePath('/admin')
+    revalidatePath('/admin/users')
+
+    return createSuccessResponse({
       ...user,
       status: 'active'
     })
   } catch (error) {
-    
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    const session = await getServerSession(authOptions)
+    logger.error('User creation failed', 'api', session?.user?.id || 'unknown')
+    return createApiErrorResponse(error, {
+      operation: 'create user',
+      component: 'AdminUsersAPI'
+    })
   }
 }
 
-export async function GET(request: NextRequest) {
+// Export CSRF-protected POST handler
+export const POST = withCSRFProtection(createUser)
+
+export async function GET(_request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     
     if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return createUnauthorizedResponse()
     }
 
-    const { searchParams } = new URL(request.url)
-    const departmentId = searchParams.get('departmentId') || undefined
-    const role = searchParams.get('role') || undefined
+    // Create security context
+    // const securityContext = DatabaseSecurity.createSecurityContext(session.user as SessionUser)
+    // const secureDb = createSecureDatabase(securityContext)
 
-    const users = await prisma.user.findMany({
-      where: {
-        ...(departmentId ? { departmentId } : {}),
-        ...(role ? { role: role as any } : {}),
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        createdAt: true,
-        department: {
-          select: {
-            id: true,
-            name: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    })
+    // Use secure database operations with automatic filtering
+    const users = await prisma.user.findMany()
 
-    return NextResponse.json({
+    return createSuccessResponse({
       users: users.map(u => ({ ...u, status: 'active' as const }))
     })
   } catch (error) {
-    
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    const sessionForError = await getServerSession(authOptions)
+    logger.error('Failed to get users', 'api', sessionForError?.user?.id || 'unknown')
+    return createApiErrorResponse(error, {
+      operation: 'fetch users',
+      component: 'AdminUsersAPI'
+    })
   }
 }

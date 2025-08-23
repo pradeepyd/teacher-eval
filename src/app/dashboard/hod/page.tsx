@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
@@ -19,6 +19,8 @@ import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { Plus, Trash2, Save, Send, Loader2, ChevronDown, ChevronUp, Download, FileText } from 'lucide-react'
+import { safeArray, safeNumber } from '@/lib/safe-access'
+import { PageErrorBoundary, DataErrorBoundary } from '@/components/ErrorBoundary'
 
 interface Question {
   id: string
@@ -54,12 +56,15 @@ interface TeacherAnswer {
   }
 }
 
-export default function HodDashboard() {
-  const { data: session } = useSession()
+function HodDashboardContent() {
+  const { data: session, status } = useSession()
   const [activeTab, setActiveTab] = useState('questions')
   const [questions, setQuestions] = useState<Question[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
-  const [loading, setLoading] = useState(false)
+     const [loading, setLoading] = useState(false)
+   const [submittingQuestion, setSubmittingQuestion] = useState(false)
+   const [publishingQuestions, setPublishingQuestions] = useState(false)
+   const [submittingEvaluation, setSubmittingEvaluation] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [hasStartTermReview, setHasStartTermReview] = useState(false)
@@ -81,168 +86,181 @@ export default function HodDashboard() {
     required: false,
   })
 
+  // Safe data access with comprehensive error handling
+  const safeQuestions = safeArray(questions) as Question[]
+  const safeTeachers = safeArray(teachers) as Teacher[]
+  const safeDepartmentStates = departmentStates || {}
+
 
   // Fetch department's active term for current year
-  const fetchDepartmentActiveTerm = async () => {
+  const fetchDepartmentActiveTerm = useCallback(async () => {
     const userDepartmentId = (session?.user as any)?.departmentId
     if (!userDepartmentId) return
 
     try {
       setTermStateLoading(true)
       const currentYear = new Date().getFullYear()
-  
       
-      const response = await fetch(`/api/departments/${userDepartmentId}/term-state`)
-      if (response.ok) {
-        const data = await response.json()
-
+             const response = await fetch(`/api/departments/${userDepartmentId}/term-state`)
+       if (response.ok) {
+         const data = await response.json()
         
-        const deptActiveTerm = data.activeTerm || null
-        const termYear = data.year || currentYear
+        const termData = data.data || data
+        const deptActiveTerm = termData.activeTerm || null
+        const termYear = termData.year || currentYear
         setDepartmentActiveTerm(deptActiveTerm)
         
-        // Auto-set the active term for question creation if not already set
-        if (deptActiveTerm && !activeTerm) {
-          setActiveTerm(deptActiveTerm)
+        // Also set department states to avoid duplicate API calls
+        setDepartmentStates({ [userDepartmentId]: termData })
+        
+        // Set visibility based on current active term and term-specific visibility
+        let newVisibility: 'DRAFT' | 'PUBLISHED' | 'COMPLETE' = 'DRAFT'
+        if (deptActiveTerm === 'START') {
+          newVisibility = termData.startTermVisibility || 'DRAFT'
+        } else if (deptActiveTerm === 'END') {
+          newVisibility = termData.endTermVisibility || 'DRAFT'
+        } else {
+          newVisibility = 'DRAFT'
         }
+        setVisibility(newVisibility)
         
+                 // Auto-set the active term for question creation if not already set
+         if (deptActiveTerm && !activeTerm) {
+           setActiveTerm(deptActiveTerm)
+         }
         
-      } else {
-
-      }
+             }
     } catch (error) {
-      
+      console.error('Error fetching department active term:', error)
     } finally {
       setTermStateLoading(false)
     }
-  }
+  }, [session])
 
   // Fetch questions
-  const fetchQuestions = async () => {
+  const fetchQuestions = useCallback(async () => {
     try {
-      const query = activeTerm ? `?term=${activeTerm}` : ''
+      const userDepartmentId = (session?.user as any)?.departmentId
+             const query = activeTerm ? `?term=${activeTerm}&departmentId=${userDepartmentId}` : `?departmentId=${userDepartmentId}`
+      
       const response = await fetch(`/api/questions${query}`)
       
       if (!response.ok) {
         throw new Error('Failed to fetch questions')
       }
-      const data = await response.json()
-      setQuestions(data.questions || [])
+             const data = await response.json()
+      setQuestions(data.data?.questions || [])
     } catch (error) {
+      console.error('Error fetching questions:', error)
       setError('Failed to load questions')
     }
-  }
+  }, [activeTerm, session])
 
-  // Fetch teachers for evaluation
-  const fetchTeachers = async () => {
-    try {
-      const response = await fetch('/api/reviews/hod/teacher-data')
-      if (!response.ok) {
-        throw new Error('Failed to fetch teachers')
-      }
-      const data = await response.json()
-      setTeachers(data.teachers || [])
-      
-      // Show message if no teachers and there's a message from API
-      if ((!data.teachers || data.teachers.length === 0) && data.message) {
-        setError(data.message)
-      }
-    } catch (error) {
+                       // Fetch teachers for evaluation
+     const fetchTeachers = useCallback(async () => {
+       try {
+         const response = await fetch('/api/reviews/hod/teacher-data')
+         if (!response.ok) {
+           throw new Error('Failed to fetch teachers')
+         }
+                const data = await response.json()
+         
+         // Fetch basic teacher info and their evaluation data
+         const teachersWithEvaluations = await Promise.all(
+           (data.teachers || []).map(async (teacher: any) => {
+             try {
+               // Fetch detailed evaluation data for each teacher
+               const detailResponse = await fetch(`/api/reviews/hod/teacher-data?teacherId=${teacher.id}&term=${activeTerm || 'START'}`)
+               if (detailResponse.ok) {
+                 const detail = await detailResponse.json()
+                 
+                 // Extract HOD score and rubric from existingReview
+                 const hodScore = detail.existingReview?.scores?.overallRating || 0
+                 const rubric = detail.existingReview?.scores?.rubric || {}
+                 const hodComment = detail.existingReview?.comments || ''
+                 
+                 return {
+                   ...teacher,
+                   hodScore,
+                   rubric,
+                   hodComment,
+                   answers: {}, // Will be populated when needed
+                   selfComment: detail.selfComment || ''
+                 }
+               }
+               return teacher
+             } catch (error) {
+               console.error(`Failed to fetch evaluation data for teacher ${teacher.id}:`, error)
+               return teacher
+             }
+           })
+         )
+         
+         setTeachers(teachersWithEvaluations)
+         
+         // Show message if no teachers and there's a message from API
+         if ((!data.teachers || data.teachers.length === 0) && data.message) {
+           setError(data.message)
+         }
+       } catch (error) {
+  
+         setError('Failed to load teachers')
+       }
+     }, [activeTerm])
 
-      setError('Failed to load teachers')
-    }
-  }
+  // Removed fetchDepartmentStates - consolidated with fetchDepartmentActiveTerm
 
-  // Fetch department states for term completion status
-  const fetchDepartmentStates = async () => {
-    const userDepartmentId = (session?.user as any)?.departmentId
-    if (!userDepartmentId) return
-    
-    try {
-      const response = await fetch(`/api/departments/${userDepartmentId}/term-state`)
-      if (response.ok) {
-        const data = await response.json()
-        setDepartmentStates({ [userDepartmentId]: data })
-      }
-    } catch (error) {
+  // Removed fetchTermState - consolidated with fetchDepartmentActiveTerm
 
-    }
-  }
-
-  // Fetch active term for HOD department
-  const fetchTermState = async () => {
-    const deptId = (session as any)?.user?.departmentId
-    if (!deptId) return
-    try {
-      const response = await fetch(`/api/departments/${deptId}/term-state`)
-      if (response.ok) {
-        const data = await response.json()
-        setActiveTerm(data.activeTerm || null)
-        
-        // Set visibility based on current active term and term-specific visibility
-        let newVisibility: 'DRAFT' | 'PUBLISHED' | 'COMPLETE' = 'DRAFT'
-        if (data.activeTerm === 'START') {
-          newVisibility = data.startTermVisibility || 'DRAFT'
-        } else if (data.activeTerm === 'END') {
-          newVisibility = data.endTermVisibility || 'DRAFT'
-        } else {
-          newVisibility = 'DRAFT'
-        }
-        
-        setVisibility(newVisibility)
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  // When activeTerm changes, refresh questions and visibility
-  useEffect(() => {
-    fetchQuestions()
-    // Also refresh the visibility state when active term changes
-    if (activeTerm) {
-      fetchTermState()
-    }
+     // When activeTerm changes, refresh questions only
+   useEffect(() => {
+     if (activeTerm && session?.user) {
+       fetchQuestions()
+       // Don't call fetchTermState here to avoid infinite loop
+     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTerm])
+  }, [activeTerm, session, fetchQuestions])
 
   // Add new question
-  const addQuestion = async () => {
+  const addQuestion = useCallback(async () => {
     if (!newQuestion.question.trim()) return
     if (!activeTerm) {
       setError('No active term set for your department')
       return
     }
 
-    setLoading(true)
+    setSubmittingQuestion(true)
     setError(null)
 
     try {
+      const questionData = {
+        question: newQuestion.question.trim(),
+        type: newQuestion.type,
+        term: activeTerm,
+        year: new Date().getFullYear(),
+        options: (newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX') 
+          ? newQuestion.options.filter(opt => opt.trim()) 
+          : [],
+        optionScores: (newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX')
+          ? newQuestion.optionScores.slice(0, newQuestion.options.length)
+          : [],
+        required: newQuestion.required,
+      }
+      
       const response = await fetch('/api/questions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          question: newQuestion.question.trim(),
-          type: newQuestion.type,
-          term: activeTerm,
-          year: new Date().getFullYear(),
-          options: (newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX') 
-            ? newQuestion.options.filter(opt => opt.trim()) 
-            : [],
-          optionScores: (newQuestion.type === 'MCQ' || newQuestion.type === 'CHECKBOX')
-            ? newQuestion.optionScores.slice(0, newQuestion.options.length)
-            : [],
-          required: newQuestion.required,
-
-        })
+        body: JSON.stringify(questionData)
       })
 
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Failed to add question')
       }
+
+      const createdQuestion = await response.json()
 
       setSuccess('Question added successfully!')
       setNewQuestion({
@@ -259,13 +277,13 @@ export default function HodDashboard() {
 
       setError(error instanceof Error ? error.message : 'Failed to add question')
     } finally {
-      setLoading(false)
+      setSubmittingQuestion(false)
     }
-  }
+  }, [newQuestion, activeTerm, session, fetchQuestions])
 
   // Delete question
-  const deleteQuestion = async (questionId: string) => {
-    setLoading(true)
+  const deleteQuestion = useCallback(async (questionId: string) => {
+    setSubmittingQuestion(true)
     setError(null)
 
     try {
@@ -278,75 +296,83 @@ export default function HodDashboard() {
         throw new Error(errorData.error || 'Failed to delete question')
       }
 
+      const deleteResponse = await response.json()
+
       setSuccess('Question deleted successfully!')
       await fetchQuestions()
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to delete question')
     } finally {
-      setLoading(false)
+      setSubmittingQuestion(false)
     }
-  }
+  }, [fetchQuestions])
 
   // Update teacher evaluation
-  const updateTeacherEvaluation = (teacherId: string, field: string, value: any) => {
+  const updateTeacherEvaluation = useCallback((teacherId: string, field: string, value: any) => {
     setTeachers(teachers.map(teacher => 
       teacher.id === teacherId 
         ? { ...teacher, [field]: value }
         : teacher
     ))
-  }
+  }, [teachers])
 
-  // Submit teacher evaluation
-  const submitTeacherEvaluation = async (teacherId: string) => {
-    const teacher = teachers.find(t => t.id === teacherId)
-    if (!teacher) return
-    if (!activeTerm) {
-      setError('No active term set for your department')
-      return
-    }
+     // Submit teacher evaluation
+   const submitTeacherEvaluation = useCallback(async (teacherId: string) => {
+     const teacher = teachers.find(t => t.id === teacherId)
+     if (!teacher) return
+     if (!activeTerm) {
+       setError('No active term set for your department')
+       return
+     }
 
-    setLoading(true)
-    setError(null)
+     // Validate score range before submission
+     if (teacher.hodScore < 1 || teacher.hodScore > 10) {
+       setError('Score must be between 1-10')
+       return
+     }
 
-    try {
-      const response = await fetch('/api/reviews/hod', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          teacherId: teacherId,
-          comment: teacher.hodComment,
-          score: teacher.hodScore,
-          scores: teacher.rubric || {},
-          term: activeTerm,
-        })
-      })
+     setSubmittingEvaluation(true)
+     setError(null)
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to submit evaluation')
-      }
+     try {
+       const response = await fetch('/api/reviews/hod', {
+         method: 'POST',
+         headers: {
+           'Content-Type': 'application/json',
+         },
+         body: JSON.stringify({
+           teacherId: teacherId,
+           comment: teacher.hodComment,
+           score: teacher.hodScore,
+           scores: teacher.rubric || {},
+           term: activeTerm,
+         })
+       })
 
-      setSuccess('Evaluation submitted successfully!')
-      
-      // Update local state
-      setTeachers(teachers.map(t => 
-        t.id === teacherId 
-          ? { ...t, status: 'REVIEWED', canReview: false }
-          : t
-      ))
-      setOpenTeacherId(null)
-    } catch (error) {
+       if (!response.ok) {
+         const errorData = await response.json()
+         throw new Error(errorData.error || 'Failed to submit evaluation')
+       }
 
-      setError(error instanceof Error ? error.message : 'Failed to submit evaluation')
-    } finally {
-      setLoading(false)
-    }
-  }
+       setSuccess('Evaluation submitted successfully!')
+       
+       // Update local state
+       setTeachers(teachers.map(t => 
+         t.id === teacherId 
+           ? { ...t, status: 'REVIEWED', canReview: false }
+           : t
+       ))
+       setOpenTeacherId(null)
+     } catch (error) {
+
+       setError(error instanceof Error ? error.message : 'Failed to submit evaluation')
+     } finally {
+       setSubmittingEvaluation(false)
+     }
+   }, [teachers, activeTerm])
 
   // Download HOD evaluation report as PDF
-  const downloadHodEvaluationReport = async (term: 'START' | 'END') => {
+  const downloadHodEvaluationReport = useCallback(async (term: 'START' | 'END') => {
     setLoading(true)
     setError(null)
     setSuccess(null)
@@ -436,58 +462,60 @@ export default function HodDashboard() {
     } finally {
       setLoading(false)
     }
-  }
-
-  // Load data on component mount
-  useEffect(() => {
-    if (session?.user) {
-  
-      fetchDepartmentActiveTerm()
-      fetchDepartmentStates()
-      fetchQuestions()
-      fetchTeachers()
-      fetchTermState()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
-  // Check for existing HOD reviews
-  useEffect(() => {
-    const checkExistingReviews = async () => {
-      try {
-        // Check START term review
-        const startResponse = await fetch('/api/reviews/hod/evaluation-report?term=START')
-        if (startResponse.ok) {
-          const startData = await startResponse.json()
-          setHasStartTermReview(!!(startData.asstDeanComment || startData.deanComment))
-        }
+         // Load data on component mount
+    useEffect(() => {
+      if (session?.user) {
+
         
-        // Check END term review
-        const endResponse = await fetch('/api/reviews/hod/evaluation-report?term=END')
-        if (endResponse.ok) {
-          const endData = await endResponse.json()
-          setHasEndTermReview(!!(endData.asstDeanComment || endData.deanComment))
-        }
-      } catch (error) {
-  
+        // Only call fetchDepartmentActiveTerm once - it will set activeTerm
+        // which will trigger fetchQuestions automatically
+        fetchDepartmentActiveTerm()
+        // Don't call fetchTermState here to avoid duplicate API calls
+        // Don't call fetchQuestions here - it will be called when activeTerm is set
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session?.user, fetchDepartmentActiveTerm])
+
+       // Fetch teachers when component mounts
+    useEffect(() => {
+      if (session?.user) {
+        fetchTeachers()
+      }
+    }, [session?.user, fetchTeachers])
+
+  // Check for existing HOD reviews
+  const checkExistingReviews = useCallback(async () => {
+    try {
+      // Check START term review
+      const startResponse = await fetch('/api/reviews/hod/evaluation-report?term=START')
+      if (startResponse.ok) {
+        const startData = await startResponse.json()
+        setHasStartTermReview(!!(startData.asstDeanComment || startData.deanComment))
+      }
+      
+      // Check END term review
+      const endResponse = await fetch('/api/reviews/hod/evaluation-report?term=END')
+      if (endResponse.ok) {
+        const endData = await endResponse.json()
+        setHasEndTermReview(!!(endData.asstDeanComment || endData.deanComment))
+      }
+    } catch (error) {
+
     }
+  }, [])
+  
+     useEffect(() => {
 
-    if ((session as any)?.user?.id) {
-      checkExistingReviews()
-    }
-  }, [(session as any)?.user?.id])
+     if ((session as any)?.user?.id) {
+       checkExistingReviews()
+     }
+   }, [(session as any)?.user?.id, checkExistingReviews])
 
-  // Debug effect to monitor state changes
-  useEffect(() => {
+  // Removed empty effects that were causing unnecessary re-renders
 
-  }, [departmentActiveTerm])
-
-  useEffect(() => {
-
-  }, [activeTerm])
-
-  const getStatusColor = (status: string) => {
+  const getStatusColor = useCallback((status: string) => {
     switch (status) {
       case 'NOT_STARTED': return 'destructive'
       case 'IN_PROGRESS': return 'secondary'
@@ -495,9 +523,9 @@ export default function HodDashboard() {
       case 'REVIEWED': return 'default'
       default: return 'secondary'
     }
-  }
+  }, [])
 
-  const getStatusText = (status: string) => {
+  const getStatusText = useCallback((status: string) => {
     switch (status) {
       case 'NOT_STARTED': return 'Not Started'
       case 'IN_PROGRESS': return 'In Progress'
@@ -505,17 +533,34 @@ export default function HodDashboard() {
       case 'REVIEWED': return 'Reviewed'
       default: return status
     }
+  }, [])
+
+  // Comprehensive loading and safety checks
+  if (status === 'loading') {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    )
   }
 
   if (!session?.user) {
     return (
-      <RoleGuard allowedRoles={['HOD']}>
-        <DashboardLayout title="Head of Department Dashboard">
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin" />
-          </div>
-        </DashboardLayout>
-      </RoleGuard>
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">Please log in to access the HOD dashboard.</p>
+          <Loader2 className="w-8 h-8 animate-spin mx-auto" />
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading state while data is being fetched
+  if (loading || termStateLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
     )
   }
 
@@ -571,8 +616,6 @@ export default function HodDashboard() {
                     size="sm"
                     onClick={() => {
                       fetchDepartmentActiveTerm()
-                      fetchDepartmentStates()
-                      fetchTermState()
                     }}
                     className="ml-2"
                   >
@@ -589,8 +632,6 @@ export default function HodDashboard() {
                     size="sm"
                     onClick={() => {
                       fetchDepartmentActiveTerm()
-                      fetchDepartmentStates()
-                      fetchTermState()
                     }}
                     className="ml-2"
                   >
@@ -659,7 +700,7 @@ export default function HodDashboard() {
                             setLoading(false)
                           }
                         }}
-                        disabled={loading || !activeTerm}
+                                                 disabled={submittingQuestion || !activeTerm}
                       >
                         Insert Rubric Template
                       </Button>
@@ -756,13 +797,13 @@ export default function HodDashboard() {
                     )}
 
                     <div className="flex items-center justify-end gap-2">
-                      <Button 
-                        onClick={addQuestion} 
-                        disabled={loading}
-                      >
-                        {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
-                        Add Question
-                      </Button>
+                                               <Button 
+                           onClick={addQuestion} 
+                           disabled={submittingQuestion}
+                         >
+                           {submittingQuestion ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                           Add Question
+                         </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -777,7 +818,7 @@ export default function HodDashboard() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {questions.map((question, index) => (
+                      {safeQuestions.map((question, index) => (
                         <div key={question.id} className="flex items-start justify-between rounded-md border p-3">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
@@ -790,18 +831,18 @@ export default function HodDashboard() {
                             </div>
                             <div className="text-sm text-gray-700">{question.question}</div>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => deleteQuestion(question.id)}
-                            disabled={loading}
-                            aria-label="Delete question"
-                          >
+                                                     <Button
+                             variant="ghost"
+                             size="sm"
+                             onClick={() => deleteQuestion(question.id)}
+                             disabled={submittingQuestion}
+                             aria-label="Delete question"
+                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       ))}
-                      {questions.length === 0 && (
+                      {safeQuestions.length === 0 && (
                         <div className="text-center text-sm text-muted-foreground">No questions added yet. Create your first question above.</div>
                       )}
                     </div>
@@ -841,7 +882,7 @@ export default function HodDashboard() {
                         variant="outline"
                         size="sm"
                         className="border-gray-300 text-gray-700 hover:bg-gray-100"
-                        onClick={async () => { await fetchTermState(); }}
+                        onClick={async () => { await fetchDepartmentActiveTerm(); }}
                       >Refresh</Button>
                       
                       {visibility === 'COMPLETE' && (
@@ -852,13 +893,20 @@ export default function HodDashboard() {
 
                     <AlertDialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
                       <AlertDialogTrigger asChild>
-                        <Button 
-                          size="sm" 
-                          disabled={!activeTerm || visibility==='PUBLISHED' || visibility==='COMPLETE' || questions.length === 0} 
-                          className="bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                          Publish
-                        </Button>
+                                                 <Button 
+                           size="sm" 
+                           disabled={!activeTerm || visibility==='PUBLISHED' || visibility==='COMPLETE' || safeQuestions.length === 0 || publishingQuestions} 
+                           className="bg-blue-600 hover:bg-blue-700 text-white"
+                         >
+                           {publishingQuestions ? (
+                             <>
+                               <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                               Publishing...
+                             </>
+                           ) : (
+                             'Publish'
+                           )}
+                         </Button>
                       </AlertDialogTrigger>
                       
 
@@ -871,14 +919,14 @@ export default function HodDashboard() {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            disabled={loading}
-                            onClick={async () => {
-                              const deptId = (session as any)?.user?.departmentId
-                              if (!deptId || !activeTerm) return
-                              setLoading(true)
-                              setError(null)
-                              try {
+                                                     <AlertDialogAction
+                             disabled={publishingQuestions}
+                             onClick={async () => {
+                               const deptId = (session as any)?.user?.departmentId
+                               if (!deptId || !activeTerm) return
+                               setPublishingQuestions(true)
+                               setError(null)
+                               try {
                                 // First, publish all questions for this term
                                 const publishQuestionsRes = await fetch('/api/questions/publish', {
                                   method: 'POST',
@@ -911,12 +959,12 @@ export default function HodDashboard() {
                                 }
                                 setVisibility('PUBLISHED')
                                 setSuccess('Questions published for teachers')
-                              } catch (e) {
-                                setError(e instanceof Error ? e.message : 'Failed to publish')
-                              } finally {
-                                setLoading(false)
-                                setPublishConfirmOpen(false)
-                              }
+                                                             } catch (e) {
+                                 setError(e instanceof Error ? e.message : 'Failed to publish')
+                               } finally {
+                                 setPublishingQuestions(false)
+                                 setPublishConfirmOpen(false)
+                               }
                             }}
                           >Confirm Publish</AlertDialogAction>
                         </AlertDialogFooter>
@@ -925,14 +973,14 @@ export default function HodDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {questions.length === 0 ? (
+                  {safeQuestions.length === 0 ? (
                     <div className="text-center text-muted-foreground py-10">
                       <div className="text-lg mb-1">Form Preview</div>
                       <div className="text-sm">Add questions to see how your evaluation form will look to users.</div>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {questions.map((q, i) => (
+                      {safeQuestions.map((q, i) => (
                         <div key={q.id} className="rounded-md border p-3">
                           <div className="font-medium">Q{i + 1}. {q.question}</div>
                           <div className="text-xs text-muted-foreground mt-1">Type: {q.type}</div>
@@ -944,11 +992,11 @@ export default function HodDashboard() {
                   {/* Counters */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
                     <div className="rounded-lg border p-4 text-center">
-                      <div className="text-3xl font-bold">{questions.length}</div>
+                      <div className="text-3xl font-bold">{safeQuestions.length}</div>
                       <div className="text-sm text-muted-foreground">Total Questions</div>
                     </div>
                     <div className="rounded-lg border p-4 text-center">
-                      <div className="text-3xl font-bold">{questions.filter(q => (q as any).required).length}</div>
+                      <div className="text-3xl font-bold">{safeQuestions.filter(q => (q as any).required).length}</div>
                       <div className="text-sm text-muted-foreground">Required Questions</div>
                     </div>
                   </div>
@@ -959,7 +1007,7 @@ export default function HodDashboard() {
 
           {/* Tab 2: Evaluate Teachers */}
           <TabsContent value="evaluate" className="space-y-6">
-            {teachers.length === 0 ? (
+            {safeTeachers.length === 0 ? (
               <Card>
                 <CardContent className="text-center py-12">
                   <div className="text-gray-500">
@@ -972,7 +1020,7 @@ export default function HodDashboard() {
               </Card>
             ) : (
               <div className="grid grid-cols-1 gap-6">
-                {teachers.map((teacher, idx) => (
+                {safeTeachers.map((teacher, idx) => (
                 <Card key={teacher.id} className="overflow-hidden">
                   <CardHeader>
                       <div className="flex items-center justify-between">
@@ -1009,76 +1057,81 @@ export default function HodDashboard() {
                   {openTeacherId === teacher.id && (
                     <CardContent className="space-y-3">
                     <Separator />
-                    <Accordion type="single" collapsible className="w-full">
-                      <AccordionItem value="review">
-                        <AccordionTrigger
-                          className="text-blue-600 hover:underline underline-offset-2 decoration-blue-400"
-                          onClick={async () => {
-                            try {
-                              const res = await fetch(`/api/reviews/hod/teacher-data?teacherId=${teacher.id}&term=${activeTerm}`)
-                              if (!res.ok) return
-                              const detail = await res.json()
-                              const answers: Record<string,string> = {}
-                              detail.answers?.forEach((a: any) => { answers[a.question?.question || a.questionId] = a.answer })
-                              setTeachers(prev => prev.map(t => t.id === teacher.id ? {
-                                ...t,
-                                answers,
-                                selfComment: detail.selfComment || t.selfComment
-                              } : t))
-                            } catch {}
-                          }}
-                        >
-                          <div className="w-full flex items-center justify-between">
-                            <span>View Teacher Answers</span>
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent>
-                          <div className="space-y-3">
-                           {Object.keys(teacher.answers).length === 0 ? (
-                              <div className="text-sm text-muted-foreground">No answers loaded. Click the row again to refresh.</div>
-                            ) : (
-                              <>
-                                {Object.entries(teacher.answers).map(([questionText, answer], idx) => (
-                                  <div key={questionText} className="border-l-2 border-gray-200 pl-4">
-                                    <div className="text-sm font-medium text-gray-700">
-                                      Q{idx + 1}: {questionText}
-                                    </div>
-                                    <div className="text-sm text-gray-600 mt-1">
-                                      {(() => {
-                                        try {
-                                          const parsed = typeof answer === 'string' ? JSON.parse(answer) : null
-                                          if (parsed && parsed.details && typeof parsed.details === 'object') {
-                                            const entries = Object.entries(parsed.details as Record<string,string>).filter(([,v]) => (v||'').trim().length > 0)
-                                            if (entries.length > 0) {
-                                              return (
-                                                <div className="space-y-1">
-                                                  {entries.map(([label, value]) => (
-                                                    <div key={label}><span className="font-medium">{label}:</span> {value}</div>
-                                                  ))}
-                                                </div>
-                                              )
-                                            }
-                                          }
-                                        } catch {}
-                                        return <span>{String(answer)}</span>
-                                      })()}
-                                    </div>
-                                  </div>
-                                ))}
-                                {teacher.selfComment && (
-                                  <div className="border-l-2 border-blue-200 pl-4">
-                                    <div className="text-sm font-medium text-gray-700">
-                                      Teacher's Self Comment
-                                    </div>
-                                    <div className="text-sm text-gray-600 mt-1">{teacher.selfComment}</div>
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    </Accordion>
+                                         <Accordion type="single" collapsible className="w-full">
+                       <AccordionItem value="review">
+                         <AccordionTrigger
+                           className="text-blue-600 hover:underline underline-offset-2 decoration-blue-400"
+                                                                                                               onClick={async () => {
+                               try {
+                                 const res = await fetch(`/api/reviews/hod/teacher-data?teacherId=${teacher.id}&term=${activeTerm}`)
+                                 if (!res.ok) return
+                                 const detail = await res.json()
+                                 
+                                 // Only fetch answers since we already have evaluation data
+                                 const answers: Record<string,string> = {}
+                                 detail.answers?.forEach((a: any) => { answers[a.question?.question || a.questionId] = a.answer })
+                                 
+                                 setTeachers(prev => prev.map(t => t.id === teacher.id ? {
+                                   ...t,
+                                   answers,
+                                   selfComment: detail.selfComment || t.selfComment
+                                 } : t))
+                               } catch (error) {
+                                 console.error('Failed to fetch teacher answers:', error)
+                               }
+                             }}
+                         >
+                           <div className="w-full flex items-center justify-between">
+                             <span>View Teacher Answers</span>
+                           </div>
+                         </AccordionTrigger>
+                         <AccordionContent>
+                           <div className="space-y-3">
+                            {Object.keys(teacher.answers).length === 0 ? (
+                               <div className="text-sm text-muted-foreground">No answers loaded. Click the row again to refresh.</div>
+                             ) : (
+                               <>
+                                 {Object.entries(teacher.answers).map(([questionText, answer], idx) => (
+                                   <div key={questionText} className="border-l-2 border-gray-200 pl-4">
+                                     <div className="text-sm font-medium text-gray-700">
+                                       Q{idx + 1}: {questionText}
+                                     </div>
+                                     <div className="text-sm text-gray-600 mt-1">
+                                       {(() => {
+                                         try {
+                                           const parsed = typeof answer === 'string' ? JSON.parse(answer) : null
+                                           if (parsed && parsed.details && typeof parsed.details === 'object') {
+                                             const entries = Object.entries(parsed.details as Record<string,string>).filter(([,v]) => (v||'').trim().length > 0)
+                                             if (entries.length > 0) {
+                                               return (
+                                                 <div className="space-y-1">
+                                                   {entries.map(([label, value]) => (
+                                                     <div key={label}><span className="font-medium">{label}:</span> {value}</div>
+                                                   ))}
+                                                 </div>
+                                               )
+                                             }
+                                           }
+                                         } catch {}
+                                         return <span>{String(answer)}</span>
+                                       })()}
+                                     </div>
+                                   </div>
+                                 ))}
+                                 {teacher.selfComment && (
+                                   <div className="border-l-2 border-blue-200 pl-4">
+                                     <div className="text-sm font-medium text-gray-700">
+                                       Teacher's Self Comment
+                                     </div>
+                                     <div className="text-sm text-gray-600 mt-1">{teacher.selfComment}</div>
+                                   </div>
+                                 )}
+                               </>
+                             )}
+                           </div>
+                         </AccordionContent>
+                       </AccordionItem>
+                     </Accordion>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
                       {/* Left column: comment and points stacked */}
@@ -1094,19 +1147,35 @@ export default function HodDashboard() {
                             disabled={!teacher.canReview}
                           />
                         </div>
-                        <div className="flex flex-col md:flex-row md:items-center md:gap-3">
-                          <label className="text-sm font-medium mb-2 md:mb-0 md:w-40">Points (1-10)</label>
-                          <Input
-                            type="number"
-                            min="1"
-                            max="10"
-                            value={teacher.hodScore}
-                            onChange={(e) => updateTeacherEvaluation(teacher.id, 'hodScore', parseInt(e.target.value) || 0)}
-                            placeholder="Enter points..."
-                            disabled={!teacher.canReview}
-                            className="md:w-40"
-                          />
-                        </div>
+                                                 <div className="flex flex-col md:flex-row md:items-center md:gap-3">
+                           <label className="text-sm font-medium mb-2 md:mb-0 md:w-40">Points (1-10)</label>
+                           <Input
+                             type="number"
+                             min="1"
+                             max="10"
+                             value={teacher.hodScore}
+                             onChange={(e) => {
+                               const value = parseInt(e.target.value) || 0
+                               // Enforce 1-10 range
+                               const clampedValue = Math.max(1, Math.min(10, value))
+                               updateTeacherEvaluation(teacher.id, 'hodScore', clampedValue)
+                             }}
+                             onBlur={(e) => {
+                               const value = parseInt(e.target.value) || 0
+                               // Additional validation on blur
+                               if (value < 1 || value > 10) {
+                                 const clampedValue = Math.max(1, Math.min(10, value))
+                                 updateTeacherEvaluation(teacher.id, 'hodScore', clampedValue)
+                               }
+                             }}
+                             placeholder="Enter points..."
+                             disabled={!teacher.canReview}
+                             className="md:w-40"
+                           />
+                           {teacher.hodScore < 1 || teacher.hodScore > 10 ? (
+                             <span className="text-xs text-red-500">Score must be between 1-10</span>
+                           ) : null}
+                         </div>
 
                         {/* Rubric (1–5 per item) for teacher evaluation, similar to Asst. Dean HOD rubric */}
                         <div className="mt-2 space-y-3">
@@ -1181,22 +1250,27 @@ export default function HodDashboard() {
                             )
                           })}
 
-                          <div className="text-xs text-gray-500">
-                            {(() => {
-                              const s = teacher.rubric || {}
-                              const groups = [
-                                Object.keys(s).filter(k => k.startsWith('[Professionalism]')),
-                                Object.keys(s).filter(k => k.startsWith('[Responsibilities]')),
-                                Object.keys(s).filter(k => k.startsWith('[Development]')),
-                                Object.keys(s).filter(k => k.startsWith('[Engagement]')),
-                              ]
-                              const sum = (keys: string[]) => keys.reduce((acc, k) => acc + (s[k] || 0), 0)
-                              const raw = groups.reduce((acc, g) => acc + sum(g), 0)
-                              const max = groups.reduce((acc, g) => acc + g.length * 5, 0)
-                              const normalized = max > 0 ? Math.round((raw / max) * 100) : 0
-                              return <span>Estimated Total: {normalized}/100</span>
-                            })()}
-                          </div>
+                                                     <div className="text-xs text-gray-500">
+                             {(() => {
+                               const s = teacher.rubric || {}
+                               const groups = [
+                                 Object.keys(s).filter(k => k.startsWith('[Professionalism]')),
+                                 Object.keys(s).filter(k => k.startsWith('[Responsibilities]')),
+                                 Object.keys(s).filter(k => k.startsWith('[Development]')),
+                                 Object.keys(s).filter(k => k.startsWith('[Engagement]')),
+                               ]
+                               const sum = (keys: string[]) => keys.reduce((acc, k) => acc + (s[k] || 0), 0)
+                               const raw = groups.reduce((acc, g) => acc + sum(g), 0)
+                               const max = groups.reduce((acc, g) => acc + g.length * 5, 0)
+                               const normalized = max > 0 ? Math.round((raw / max) * 100) : 0
+                               
+                                                               return (
+                                  <div>
+                                    <span>Estimated Total: {normalized}/100</span>
+                                  </div>
+                                )
+                             })()}
+                           </div>
                         </div>
                       </div>
 
@@ -1210,14 +1284,14 @@ export default function HodDashboard() {
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button
-                              className="w-full md:w-44 bg-blue-600 hover:bg-blue-700 text-white"
-                                  onClick={() => {}}
-                              disabled={loading || teacher.status === 'REVIEWED'}
-                            >
-                              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                              Submit Evaluation
-                                </Button>
+                                                             <Button
+                               className="w-full md:w-44 bg-blue-600 hover:bg-blue-700 text-white"
+                                 onClick={() => {}}
+                               disabled={submittingEvaluation || teacher.status === 'REVIEWED'}
+                             >
+                               {submittingEvaluation ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                               {submittingEvaluation ? 'Submitting...' : 'Submit Evaluation'}
+                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
                                 <AlertDialogHeader>
@@ -1226,12 +1300,12 @@ export default function HodDashboard() {
                                     Are you sure you want to submit your review for {teacher.name}? This action cannot be undone.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => submitTeacherEvaluation(teacher.id)} disabled={loading}>
-                                    {loading ? 'Submitting...' : 'Confirm Submit'}
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
+                                                                 <AlertDialogFooter>
+                                   <AlertDialogCancel disabled={submittingEvaluation}>Cancel</AlertDialogCancel>
+                                   <AlertDialogAction onClick={() => submitTeacherEvaluation(teacher.id)} disabled={submittingEvaluation}>
+                                     {submittingEvaluation ? 'Submitting...' : 'Confirm Submit'}
+                                   </AlertDialogAction>
+                                 </AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
                           </>
@@ -1254,7 +1328,7 @@ export default function HodDashboard() {
                   <CardTitle>Total Questions</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold text-blue-600">{questions.length}</div>
+                  <div className="text-3xl font-bold text-blue-600">{safeQuestions.length}</div>
                   <p className="text-sm text-gray-500">Questions created</p>
                 </CardContent>
               </Card>
@@ -1265,11 +1339,11 @@ export default function HodDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-bold text-green-600">
-                    {teachers.filter(t => t.status === 'REVIEWED').length}
+                    {safeTeachers.filter(t => t.status === 'REVIEWED').length}
                   </div>
-                  <p className="text-sm text-gray-500">Out of {teachers.length} teachers</p>
+                  <p className="text-sm text-gray-500">Out of {safeTeachers.length} teachers</p>
                   <Progress 
-                    value={teachers.length > 0 ? (teachers.filter(t => t.status === 'REVIEWED').length / teachers.length) * 100 : 0} 
+                    value={safeTeachers.length > 0 ? (safeTeachers.filter(t => t.status === 'REVIEWED').length / safeTeachers.length) * 100 : 0} 
                     className="mt-2"
                   />
                 </CardContent>
@@ -1280,12 +1354,12 @@ export default function HodDashboard() {
                   <CardTitle>Average Score</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold text-purple-600">
-                    {teachers.length > 0 
-                      ? Math.round(teachers.reduce((sum, t) => sum + t.hodScore, 0) / teachers.length)
-                      : 0
-                    }/10
-                  </div>
+                                                        <div className="text-3xl font-bold text-purple-600">
+                      {safeTeachers.length > 0 
+                        ? Math.round((safeTeachers.reduce((sum, t) => sum + t.hodScore, 0) / safeTeachers.length))
+                        : 0
+                      }/10
+                    </div>
                   <p className="text-sm text-gray-500">Department average</p>
                 </CardContent>
               </Card>
@@ -1297,7 +1371,7 @@ export default function HodDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {teachers.map((teacher) => (
+                  {safeTeachers.map((teacher) => (
                     <div key={teacher.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
                         <div className="font-medium">{teacher.name}</div>
@@ -1305,12 +1379,12 @@ export default function HodDashboard() {
                           Status: {getStatusText(teacher.status)}
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="font-medium">{teacher.hodScore}/10 points</div>
-                        <div className="text-sm text-gray-500">
-                          {teacher.status === 'REVIEWED' ? 'Completed' : 'Pending'}
-                        </div>
-                      </div>
+                                             <div className="text-right">
+                                                   <div className="font-medium">{teacher.hodScore}/10 points</div>
+                         <div className="text-sm text-gray-500">
+                           {teacher.status === 'REVIEWED' ? 'Completed' : 'Pending'}
+                         </div>
+                       </div>
                     </div>
                   ))}
                 </div>
@@ -1403,5 +1477,15 @@ export default function HodDashboard() {
         </Tabs>
       </DashboardLayout>
     </RoleGuard>
+  )
+}
+
+export default function HodDashboard() {
+  return (
+    <PageErrorBoundary pageName="HOD Dashboard">
+      <DataErrorBoundary dataType="HOD dashboard data">
+        <HodDashboardContent />
+      </DataErrorBoundary>
+    </PageErrorBoundary>
   )
 }

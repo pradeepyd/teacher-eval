@@ -18,6 +18,8 @@ import { Switch } from '@/components/ui/switch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { safeArray, safeNumber } from '@/lib/safe-access'
+import { PageErrorBoundary, DataErrorBoundary } from '@/components/ErrorBoundary'
 
 interface Department {
   id: string
@@ -70,8 +72,8 @@ interface Teacher {
   } | null | undefined>
 }
 
-export default function DeanDashboard() {
-  const { data: session } = useSession()
+function DeanDashboardContent() {
+  const { data: session, status } = useSession()
   const [departments, setDepartments] = useState<Department[]>([])
   const [selectedDept, setSelectedDept] = useState<string>('')
   const [teachers, setTeachers] = useState<Teacher[]>([])
@@ -92,6 +94,12 @@ export default function DeanDashboard() {
   const [hodFinalScore, setHodFinalScore] = useState<number | null>(null)
   const [hodFinalPromoted, setHodFinalPromoted] = useState<boolean>(true)
   const [openHodCardId, setOpenHodCardId] = useState<string | null>(null)
+  const [finalizingHodId, setFinalizingHodId] = useState<string | null>(null)
+
+  // Safe data access with comprehensive error handling
+  const safeDepartments = safeArray(departments) as Department[]
+  const safeTeachers = safeArray(teachers) as Teacher[]
+  const safeHods = safeArray(hods) as HodView[]
 
   // Fetch departments
   const fetchDepartments = async () => {
@@ -151,8 +159,8 @@ export default function DeanDashboard() {
   }
 
   // Fetch HOD performance with Asst. Dean and Dean reviews
-  const fetchHodPerformance = async () => {
-    setHodLoading(true)
+  const fetchHodPerformance = async (showLoading = true) => {
+    if (showLoading) setHodLoading(true)
     try {
       const res = await fetch(`/api/reviews/dean/hod?term=${hodTerm}`)
       if (!res.ok) throw new Error('Failed to load HOD performance')
@@ -169,7 +177,7 @@ export default function DeanDashboard() {
       setError('Failed to load HOD performance')
       toast.error('Failed to load HOD performance')
     } finally {
-      setHodLoading(false)
+      if (showLoading) setHodLoading(false)
     }
   }
 
@@ -368,15 +376,32 @@ export default function DeanDashboard() {
     }
   }, [session, hodTerm])
 
+  // Comprehensive loading and safety checks
+  if (status === 'loading') {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    )
+  }
+
   if (!session?.user) {
     return (
-      <RoleGuard allowedRoles={['DEAN']}>
-        <DashboardLayout title="Dean Dashboard">
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin" />
-          </div>
-        </DashboardLayout>
-      </RoleGuard>
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">Please log in to access the Dean dashboard.</p>
+          <Loader2 className="w-8 h-8 animate-spin mx-auto" />
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading state while data is being fetched
+  if (hodLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
     )
   }
 
@@ -439,7 +464,7 @@ export default function DeanDashboard() {
                 <div className="text-sm text-gray-500 flex items-center"><Loader2 className="w-4 h-4 animate-spin mr-2"/>Loading HODs...</div>
               ) : (
                 <div className="space-y-3">
-                  {hods.map((h: HodView) => (
+                  {safeHods.map((h: HodView) => (
                     <div key={h.id} className="border rounded-lg">
                       <Accordion type="single" collapsible className="w-full">
                         <AccordionItem value={`hod-${h.id}`} className="border-0">
@@ -574,17 +599,20 @@ export default function DeanDashboard() {
                                     placeholder="Enter your final comments..."
                                   />
                                 </div>
-                                <div>
-                                  <label className="text-sm font-medium">Final Score (1-100)</label>
-                                  <Input
-                                    type="number"
-                                    min={1}
-                                    max={100}
-                                    value={hodFinalScore ?? ''}
-                                    onChange={(e) => setHodFinalScore(parseInt(e.target.value) || 0)}
-                                    className="w-32"
-                                  />
-                                </div>
+                                                                 <div>
+                                   <label className="text-sm font-medium">Final Score (1-100)</label>
+                                   <Input
+                                     type="number"
+                                     min={1}
+                                     max={100}
+                                     value={hodFinalScore ?? ''}
+                                     onChange={(e) => setHodFinalScore(parseInt(e.target.value) || 0)}
+                                     className="w-32"
+                                   />
+                                   <p className="text-xs text-gray-500 mt-1">
+                                     Enter a score between 1-100 (this will be stored as a percentage)
+                                   </p>
+                                 </div>
                                 <div className="space-y-3">
                                   <div>
                                     <label className="text-sm font-medium mb-2 block">Decision</label>
@@ -606,8 +634,10 @@ export default function DeanDashboard() {
                                         ? 'bg-green-600 hover:bg-green-700' 
                                         : 'bg-amber-600 hover:bg-amber-700'
                                     }`}
+                                    disabled={finalizingHodId === openHodFinalId}
                                     onClick={async () => {
                                       if (!openHodFinalId) return
+                                      setFinalizingHodId(openHodFinalId)
                                       try {
                                         const res = await fetch('/api/reviews/dean/hod', {
                                           method: 'POST',
@@ -629,13 +659,22 @@ export default function DeanDashboard() {
                                         setHodFinalComment('')
                                         setHodFinalScore(null)
                                         setHodFinalPromoted(true)
-                                        await fetchHodPerformance()
+                                        await fetchHodPerformance(false)
                                       } catch (e: any) {
                                         toast.error(e.message || 'Failed to submit')
+                                      } finally {
+                                        setFinalizingHodId(null)
                                       }
                                     }}
                                   >
-                                    {hodFinalPromoted ? 'Finalize - PROMOTE HOD' : 'Finalize - PUT ON HOLD'}
+                                    {finalizingHodId === openHodFinalId ? (
+                                      <>
+                                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                        Finalizing...
+                                      </>
+                                    ) : (
+                                      hodFinalPromoted ? 'Finalize - PROMOTE HOD' : 'Finalize - PUT ON HOLD'
+                                    )}
                                   </Button>
                                 </div>
                               </>
@@ -665,13 +704,13 @@ export default function DeanDashboard() {
                 <SelectTrigger className="w-full max-w-md">
                   <SelectValue placeholder="Choose a department" />
                 </SelectTrigger>
-                <SelectContent>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+                                  <SelectContent>
+                    {safeDepartments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
               </Select>
             </CardContent>
           </Card>
@@ -689,10 +728,10 @@ export default function DeanDashboard() {
           )}
 
           {/* Teachers List */}
-          {selectedDept && !loading && teachers.length > 0 && (
+          {selectedDept && !loading && safeTeachers.length > 0 && (
             <div className="space-y-4">
               <h2 className="text-xl font-semibold">Teachers for Final Review</h2>
-              {teachers.map((teacher) => (
+              {safeTeachers.map((teacher) => (
                 <Card key={teacher.id}>
                   <CardHeader>
                     <div className="flex items-center justify-between">
@@ -807,7 +846,7 @@ export default function DeanDashboard() {
                                             <div className="space-y-1 text-xs">
                                               <div className="flex justify-between">
                                                 <span>Rubric Performance:</span>
-                                                <span className="font-medium">{scores.totalScore} points</span>
+                                                <span className="font-medium">{Math.round((scores.totalScore / 75) * 100)}%</span>
                                               </div>
                                               <div className="flex justify-between">
                                                 <span>Overall Rating:</span>
@@ -854,18 +893,41 @@ export default function DeanDashboard() {
                                   />
                                 </div>
                                 
-                                <div>
-                                  <label className="text-sm font-medium">Final Score (1-10)</label>
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    max="10"
-                                    value={Number((teacher.finalScore as any)?.[activeTerm || 'START'] || '')}
-                                    onChange={(ev) => updateTeacher(teacher.id, { finalScore: { ...(teacher.finalScore as any), [activeTerm || 'START']: parseInt(ev.target.value) || 0 } as any })}
-                                    className="mt-1 w-24"
-                                    disabled={!teacher.canReview}
-                                  />
-                                </div>
+                                                                 <div>
+                                   <label className="text-sm font-medium">Final Score (1-10)</label>
+                                   <Input
+                                     type="number"
+                                     min="1"
+                                     max="10"
+                                     value={Number((teacher.finalScore as any)?.[activeTerm || 'START'] || '')}
+                                     onChange={(ev) => {
+                                       const value = parseInt(ev.target.value) || 0
+                                       // Clamp value to 1-10 range
+                                       const clampedValue = Math.max(1, Math.min(10, value))
+                                       updateTeacher(teacher.id, { 
+                                         finalScore: { 
+                                           ...(teacher.finalScore as any), 
+                                           [activeTerm || 'START']: clampedValue 
+                                         } as any 
+                                       })
+                                     }}
+                                     onBlur={(ev) => {
+                                       const value = parseInt(ev.target.value) || 0
+                                       // Ensure value is within range on blur
+                                       if (value < 1 || value > 10) {
+                                         const clampedValue = Math.max(1, Math.min(10, value))
+                                         updateTeacher(teacher.id, { 
+                                           finalScore: { 
+                                             ...(teacher.finalScore as any), 
+                                             [activeTerm || 'START']: clampedValue 
+                                           } as any 
+                                         })
+                                       }
+                                     }}
+                                     className="mt-1 w-24"
+                                     disabled={!teacher.canReview}
+                                   />
+                                 </div>
                                 
                                 <div className="space-y-3">
                                   <div>
@@ -930,7 +992,7 @@ export default function DeanDashboard() {
           )}
 
           {/* Empty State */}
-          {selectedDept && !loading && teachers.length === 0 && (
+          {selectedDept && !loading && safeTeachers.length === 0 && (
             <Card>
               <CardContent className="pt-6">
                 <div className="text-center py-8">
@@ -969,5 +1031,15 @@ export default function DeanDashboard() {
         </Dialog>
       </DashboardLayout>
     </RoleGuard>
+  )
+}
+
+export default function DeanDashboard() {
+  return (
+    <PageErrorBoundary pageName="Dean Dashboard">
+      <DataErrorBoundary dataType="Dean dashboard data">
+        <DeanDashboardContent />
+      </DataErrorBoundary>
+    </PageErrorBoundary>
   )
 }

@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     }))
 
     return NextResponse.json({ hods: hodsWithCalculatedScores })
-  } catch (e) {
+  } catch (_e) {
     
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -82,7 +82,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Use the provided totalScore or default to null
+    // Ensure totalScore is within 0-100 range (percentage)
     let computedTotal = typeof totalScore === 'number' ? totalScore : null
+    if (computedTotal !== null) {
+      // Clamp to 0-100 range
+      computedTotal = Math.max(0, Math.min(100, computedTotal))
+    }
+
+    // First, get the term ID for the current year and term
+    const termRecord = await prisma.term.findFirst({
+      where: { 
+        year: new Date().getFullYear(),
+        name: term 
+      }
+    })
 
     const review = await prisma.hodPerformanceReview.upsert({
       where: { hodId_term_year_reviewerId: { hodId, term, year: new Date().getFullYear(), reviewerId: session.user.id } },
@@ -93,6 +106,7 @@ export async function POST(request: NextRequest) {
         totalScore: computedTotal,
         status: promoted ? 'PROMOTED' : 'ON_HOLD',
         submitted: true,
+        termId: termRecord?.id || null,
       },
       create: {
         hodId,
@@ -104,11 +118,12 @@ export async function POST(request: NextRequest) {
         totalScore: computedTotal,
         status: promoted ? 'PROMOTED' : 'ON_HOLD',
         submitted: true,
+        termId: termRecord?.id || null,
       },
     })
 
     return NextResponse.json({ review })
-  } catch (e) {
+  } catch (_e) {
     
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

@@ -2,44 +2,62 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import { PrismaAdapter } from '@next-auth/prisma-adapter'
 import { prisma } from './prisma'
 import bcrypt from 'bcrypt'
+import type { Session } from 'next-auth'
 
-// Simple in-memory rate limiter for credential logins (per email)
-// Limits to 5 failed attempts per 15 minutes window
-const loginAttempts = new Map<string, { count: number; firstAttemptTs: number }>()
-const MAX_ATTEMPTS = 5
-const WINDOW_MS = 15 * 60 * 1000
+// Custom JWT type with our properties
+interface CustomJWT {
+  sub?: string
+  role?: string
+  departmentId?: string | null
+  departmentName?: string | null
+  [key: string]: any
+}
+
+// Extend Session type to include custom properties
+interface ExtendedSession extends Session {
+  user: {
+    id: string
+    email: string
+    name: string
+    role: string
+    departmentId: string | null
+    departmentName: string | null
+  }
+}
+
+// Simple in-memory auth rate limiting (per-identifier)
+const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000 // 5 minutes
+const RATE_LIMIT_MAX_ATTEMPTS = 5
+
+const authAttempts = new Map<string, { count: number; resetAt: number }>()
 
 function isRateLimited(key: string): boolean {
-  const now = Date.now()
-  const record = loginAttempts.get(key)
-  if (!record) return false
-  if (now - record.firstAttemptTs > WINDOW_MS) {
-    loginAttempts.delete(key)
-    return false
-  }
-  return record.count >= MAX_ATTEMPTS
+	const bucket = authAttempts.get(key)
+	const now = Date.now()
+	if (!bucket) return false
+	if (now >= bucket.resetAt) {
+		authAttempts.delete(key)
+		return false
+	}
+	return bucket.count >= RATE_LIMIT_MAX_ATTEMPTS
 }
 
 function recordFailedAttempt(key: string) {
-  const now = Date.now()
-  const record = loginAttempts.get(key)
-  if (!record) {
-    loginAttempts.set(key, { count: 1, firstAttemptTs: now })
-  } else {
-    if (now - record.firstAttemptTs > WINDOW_MS) {
-      loginAttempts.set(key, { count: 1, firstAttemptTs: now })
-    } else {
-      record.count += 1
-      loginAttempts.set(key, record)
-    }
-  }
+	const now = Date.now()
+	const existing = authAttempts.get(key)
+	if (existing && now < existing.resetAt) {
+		existing.count += 1
+		authAttempts.set(key, existing)
+	} else {
+		authAttempts.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+	}
 }
 
 function clearAttempts(key: string) {
-  loginAttempts.delete(key)
+	authAttempts.delete(key)
 }
 
-export const authOptions: any = {
+export const authOptions = {
   adapter: PrismaAdapter(prisma),
   providers: [
     CredentialsProvider({
@@ -101,7 +119,7 @@ export const authOptions: any = {
     strategy: 'jwt'
   },
   callbacks: {
-    async jwt({ token, user }: any) {
+    async jwt({ token, user }: { token: CustomJWT; user: any }) {
       if (user) {
         token.role = user.role
         token.departmentId = user.departmentId
@@ -109,12 +127,12 @@ export const authOptions: any = {
       }
       return token
     },
-    async session({ session, token }: any) {
+    async session({ session, token }: { session: ExtendedSession; token: CustomJWT }) {
       if (token) {
-        session.user.id = token.sub!
-        session.user.role = token.role as string
-        session.user.departmentId = (token.departmentId || null) as string | null
-        session.user.departmentName = (token.departmentName || null) as string | null
+        session.user.id = token.sub || ''
+        session.user.role = token.role || ''
+        session.user.departmentId = token.departmentId || null
+        session.user.departmentName = token.departmentName || null
       }
       return session
     }

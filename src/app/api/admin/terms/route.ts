@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { logger } from '@/lib/logger'
 
 export async function GET(_request: NextRequest) {
   try {
@@ -115,11 +116,11 @@ export async function POST(request: NextRequest) {
 
     // Auto-set department term states for connected departments (YEAR-WISE)
     if (Array.isArray(departmentIds) && departmentIds.length > 0) {
-      console.log(`Setting up automatic year-wise term mapping for ${departmentIds.length} departments...`)
+      logger.info(`Setting up automatic year-wise term mapping for ${departmentIds.length} departments`, 'admin', undefined, 'TERM_MAPPING_SETUP')
       
       for (const deptId of departmentIds) {
         // Create or update the term state for the specific year and term
-        const termState = await prisma.termState.upsert({
+        await prisma.termState.upsert({
           where: { 
             departmentId_year: {
               departmentId: deptId,
@@ -148,10 +149,10 @@ export async function POST(request: NextRequest) {
           }
         })
 
-        console.log(`✅ Department ${deptId} now has active term: ${termType} for year ${yearNumber}`)
+                  logger.info(`Department ${deptId} now has active term: ${termType} for year ${yearNumber}`, 'admin', undefined, 'DEPT_TERM_ACTIVATED')
       }
       
-      console.log(`🎯 Year-wise automatic term mapping complete! ${departmentIds.length} departments now have ${termType} as active term for year ${yearNumber}`)
+              logger.info(`Year-wise automatic term mapping complete! ${departmentIds.length} departments now have ${termType} as active term for year ${yearNumber}`, 'admin', undefined, 'TERM_MAPPING_COMPLETE')
     }
 
     return NextResponse.json(term)

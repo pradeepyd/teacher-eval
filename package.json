@@ -4,10 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "prisma generate && next build",
+    "build": "npm run validate:build && prisma generate && next build",
+    "build:validate": "npm run validate:build",
+    "validate:build": "tsx scripts/validate-build.ts",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "deploy:prod": "chmod +x scripts/deploy-production.sh && ./scripts/deploy-production.sh"
   },
   "prisma": {},
   "dependencies": {
@@ -23,11 +26,8 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-switch": "^1.2.5",
     "@radix-ui/react-tabs": "^1.1.12",
-    "@supabase/supabase-js": "^2.53.0",
     "@types/bcrypt": "^6.0.0",
-    "@types/bcryptjs": "^2.4.6",
     "bcrypt": "^6.0.0",
-    "bcryptjs": "^3.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "html2canvas": "^1.4.1",

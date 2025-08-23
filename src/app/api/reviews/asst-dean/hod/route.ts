@@ -15,26 +15,75 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const term = (searchParams.get('term') as 'START' | 'END') || 'START'
 
+    // Simple database connection test
+    try {
+      await prisma.$queryRaw`SELECT 1`
+    } catch (dbError) {
+      console.error('Database connection failed:', dbError)
+      // Continue anyway - the main query might work
+    }
+
+    // Optimized query with better filtering and limiting
     const hods = await prisma.user.findMany({
-      where: { role: 'HOD' },
+      where: { 
+        role: 'HOD',
+        departmentId: { not: null } // Only HODs with departments
+      },
       select: {
         id: true,
         name: true,
         email: true,
         department: { select: { id: true, name: true } },
         hodPerformanceReviewsReceived: {
-          where: { reviewerId: session.user.id, term },
+          where: { 
+            reviewerId: session.user.id, 
+            term,
+            year: new Date().getFullYear() // Only current year reviews
+          },
           orderBy: { updatedAt: 'desc' },
           take: 1,
-          select: { comments: true, totalScore: true, submitted: true }
+          select: { comments: true, totalScore: true, submitted: true, scores: true }
         }
+      },
+      // Add pagination for large datasets
+      take: 100,
+      orderBy: { name: 'asc' }
+    })
+
+    console.log(`Found ${hods.length} HODs for term ${term}`)
+    hods.forEach(hod => {
+      console.log(`HOD: ${hod.name} - Department: ${hod.department?.name || 'No Dept'}`)
+    })
+
+    // Add default rubric structure for HODs that don't have existing reviews
+    const hodsWithRubric = hods.map(hod => {
+      const existingReview = hod.hodPerformanceReviewsReceived[0]
+      
+      // Default rubric structure for HOD evaluation (matching the component expectations)
+      const defaultRubric = {
+        '[Professionalism] Compliance': 3,
+        '[Professionalism] Punctuality/Attendance': 3,
+        '[Professionalism] Competence and Performance': 3,
+        '[Leadership] Planning & Organization': 3,
+        '[Leadership] Department Duties': 3,
+        '[Leadership] Collegial Relationship & Work Delegation': 3,
+        '[Leadership] College Committees': 3,
+        '[Development] In-Service Training': 3,
+        '[Development] Research and Publications': 3,
+        '[Development] National and International Conferences': 3,
+        '[Service] Students\' Engagement': 3,
+        '[Service] Community Engagement': 3
+      }
+
+      return {
+        ...hod,
+        rubric: existingReview?.scores || defaultRubric,
+        existingReview: existingReview || null,
+        comments: existingReview?.comments || ''
       }
     })
 
-    // HODs can always be evaluated by Assistant Dean - no admin permission needed
-    const filtered = hods.filter(h => h.department?.id)
-
-    return NextResponse.json({ hods: filtered })
+    return NextResponse.json({ hods: hodsWithRubric })
   } catch (e) {
     console.error('Error loading HODs:', e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

@@ -3,13 +3,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { createSuccessResponse, createApiErrorResponse, createUnauthorizedResponse } from '@/lib/api-response'
+import { validateRequestBody, validationSchemas } from '@/lib/api-validation'
+import { batchFetchQuestions } from '@/lib/api-performance'
 
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return createUnauthorizedResponse()
     }
 
     const { searchParams } = new URL(request.url)
@@ -44,10 +47,13 @@ export async function GET(request: NextRequest) {
       ]
     })
 
-    return NextResponse.json({ questions })
+    return createSuccessResponse({ questions })
   } catch (error) {
     console.error('Error fetching questions:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createApiErrorResponse(error, {
+      operation: 'fetch questions',
+      component: 'QuestionsAPI'
+    })
   }
 }
 
@@ -56,22 +62,27 @@ export async function POST(request: NextRequest) {
     const session = await getServerSession(authOptions)
     
     if (!session || session.user.role !== 'HOD') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return createUnauthorizedResponse()
     }
 
-    const { question, type, term, options, optionScores, order } = await request.json()
-
-    if (!question || !type || !term) {
-      return NextResponse.json({ error: 'Question, type, and term are required' }, { status: 400 })
+    // Ensure HOD has a department assigned
+    if (!session.user.departmentId) {
+      return createApiErrorResponse(
+        new Error('You must be assigned to a department to create questions. Please contact admin.'),
+        { operation: 'create question', component: 'QuestionsAPI' },
+        400
+      )
     }
 
-    if (!['TEXT', 'TEXTAREA', 'MCQ', 'CHECKBOX'].includes(type)) {
-      return NextResponse.json({ error: 'Invalid question type' }, { status: 400 })
+    const body = await request.json()
+    
+    // Validate input using the centralized validation
+    const validation = validateRequestBody(body, validationSchemas.question, 'question creation')
+    if (!validation.success) {
+      return validation.response
     }
-
-    if (!['START', 'END'].includes(term)) {
-      return NextResponse.json({ error: 'Invalid term' }, { status: 400 })
-    }
+    
+    const { question, type, term, options, optionScores, order } = validation.data
 
     // Check if the current term matches the department's active term for current year
     const currentYear = new Date().getFullYear()
@@ -85,15 +96,19 @@ export async function POST(request: NextRequest) {
     })
 
     if (!termState) {
-      return NextResponse.json({ 
-        error: 'Department term state not configured. Please contact admin to set up terms for your department.' 
-      }, { status: 400 })
+      return createApiErrorResponse(
+        new Error('Department term state not configured. Please contact admin to set up terms for your department.'),
+        { operation: 'create question', component: 'QuestionsAPI' },
+        400
+      )
     }
 
     if (termState.activeTerm !== term) {
-      return NextResponse.json({ 
-        error: `Cannot create questions for ${term} term. Current active term is ${termState.activeTerm}. Questions can only be created for the active term.` 
-      }, { status: 400 })
+      return createApiErrorResponse(
+        new Error(`Cannot create questions for ${term} term. Current active term is ${termState.activeTerm}. Questions can only be created for the active term.`),
+        { operation: 'create question', component: 'QuestionsAPI' },
+        400
+      )
     }
 
     const newQuestion = await prisma.question.create({
@@ -116,9 +131,12 @@ export async function POST(request: NextRequest) {
 
 
 
-    return NextResponse.json(newQuestion, { status: 201 })
+    return createSuccessResponse(newQuestion, 201)
   } catch (error) {
     console.error('Error creating question:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createApiErrorResponse(error, {
+      operation: 'create question',
+      component: 'QuestionsAPI'
+    })
   }
 }

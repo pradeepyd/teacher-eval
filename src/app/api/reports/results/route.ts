@@ -23,11 +23,11 @@ export async function GET(request: NextRequest) {
     // Role scoping
     const userRole = session.user.role
     if (userRole === 'ADMIN' || userRole === 'DEAN' || userRole === 'ASST_DEAN') {
-      // Full visibility
-      whereClause.role = 'TEACHER'
+      // Full visibility - include both TEACHER and HOD roles
+      whereClause.role = { in: ['TEACHER', 'HOD'] }
     } else if (userRole === 'HOD') {
-      // Only teachers in their department
-      whereClause.role = 'TEACHER'
+      // Only teachers and HODs in their department
+      whereClause.role = { in: ['TEACHER', 'HOD'] }
       whereClause.departmentId = session.user.departmentId
     } else if (userRole === 'TEACHER') {
       // Only self
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
       termIds = terms.map(t => t.id)
     }
 
-    const teachers = await prisma.user.findMany({
+    const staff = await prisma.user.findMany({
       where: whereClause,
       include: {
         department: true,
@@ -71,23 +71,33 @@ export async function GET(request: NextRequest) {
           where: { submitted: true, ...(termIds ? { termId: { in: termIds } } : {}) }
         },
         receivedFinalReviews: termIds ? { where: { termId: { in: termIds } } } : true,
+        hodPerformanceReviewsReceived: termIds ? { 
+          where: { termId: { in: termIds } },
+          include: { reviewer: { select: { id: true, role: true } } }
+        } : true,
       }
     })
 
     // Transform data for reports
     const effectiveYear = year && year !== 'ALL' ? Number(year) : new Date().getFullYear()
 
-    const results = teachers.map(teacher => {
-      const startAnswers = teacher.teacherAnswers.filter(a => a.term === 'START')
-      const endAnswers = teacher.teacherAnswers.filter(a => a.term === 'END')
-      const startSelfComment = teacher.selfComments.find(c => c.term === 'START')
-      const endSelfComment = teacher.selfComments.find(c => c.term === 'END')
-      const startHodReview = teacher.receivedHodReviews.find(r => r.term === 'START')
-      const endHodReview = teacher.receivedHodReviews.find(r => r.term === 'END')
-      const startAsstReview = teacher.receivedAsstReviews.find(r => r.term === 'START')
-      const endAsstReview = teacher.receivedAsstReviews.find(r => r.term === 'END')
-      const startFinalReview = teacher.receivedFinalReviews.find(r => r.term === 'START')
-      const endFinalReview = teacher.receivedFinalReviews.find(r => r.term === 'END')
+    const results = staff.map(staffMember => {
+      const startAnswers = staffMember.teacherAnswers.filter(a => a.term === 'START')
+      const endAnswers = staffMember.teacherAnswers.filter(a => a.term === 'END')
+      const startSelfComment = staffMember.selfComments.find(c => c.term === 'START')
+      const endSelfComment = staffMember.selfComments.find(c => c.term === 'END')
+      const startHodReview = staffMember.receivedHodReviews.find(r => r.term === 'START')
+      const endHodReview = staffMember.receivedHodReviews.find(r => r.term === 'END')
+      const startAsstReview = staffMember.receivedAsstReviews.find(r => r.term === 'START')
+      const endAsstReview = staffMember.receivedAsstReviews.find(r => r.term === 'END')
+      const startFinalReview = staffMember.receivedFinalReviews.find(r => r.term === 'START')
+      const endFinalReview = staffMember.receivedFinalReviews.find(r => r.term === 'END')
+      
+      // For HODs, also check performance reviews (any submitted review means they've been evaluated)
+      const startHodPerformanceReview = staffMember.role === 'HOD' ? 
+        staffMember.hodPerformanceReviewsReceived.find(r => r.term === 'START' && r.submitted) : null
+      const endHodPerformanceReview = staffMember.role === 'HOD' ? 
+        staffMember.hodPerformanceReviewsReceived.find(r => r.term === 'END' && r.submitted) : null
 
       // Helper function to calculate max score from rubric
       const calculateMaxScore = (review: any) => {
@@ -107,7 +117,7 @@ export async function GET(request: NextRequest) {
             })
             return total || 50
           }
-        } catch (e) {
+        } catch (_e) {
           // If parsing fails, return default
         }
         return 50 // Default fallback reduced
@@ -119,12 +129,12 @@ export async function GET(request: NextRequest) {
       const endAsstMaxScore = calculateMaxScore(endAsstReview)
 
       return {
-        id: teacher.id,
-        name: teacher.name,
-        email: teacher.email,
-        role: teacher.role,
-        department: teacher.department?.name || 'N/A',
-        departmentId: teacher.department?.id || '',
+        id: staffMember.id,
+        name: staffMember.name,
+        email: staffMember.email,
+        role: staffMember.role,
+        department: staffMember.department?.name || 'N/A',
+        departmentId: staffMember.department?.id || '',
         year: effectiveYear,
         terms: {
           START: {
@@ -139,15 +149,17 @@ export async function GET(request: NextRequest) {
             hodMaxScore: startHodMaxScore,
             asstMaxScore: startAsstMaxScore,
             deanMaxScore: 100,
-            status: startFinalReview?.submitted ? startFinalReview.status : 'PENDING',
-            promoted: startFinalReview?.submitted && startFinalReview?.status === 'PROMOTED',
+            status: startFinalReview?.submitted ? startFinalReview.status : 
+                    (startHodPerformanceReview?.submitted ? startHodPerformanceReview.status : 'PENDING'),
+            promoted: startFinalReview?.submitted && startFinalReview?.status === 'PROMOTED' ||
+                     startHodPerformanceReview?.submitted && startHodPerformanceReview.status === 'PROMOTED',
             hodReviewer: startHodReview?.reviewerId || null,
             asstReviewer: startAsstReview?.reviewerId || null,
-            deanReviewer: startFinalReview?.reviewerId || null,
+            deanReviewer: startFinalReview?.reviewerId || startHodPerformanceReview?.reviewerId || null,
             submittedAt: startSelfComment?.createdAt || null,
             hodReviewedAt: startHodReview?.createdAt || null,
             asstReviewedAt: startAsstReview?.createdAt || null,
-            finalReviewedAt: startFinalReview?.createdAt || null
+            finalReviewedAt: startFinalReview?.createdAt || startHodPerformanceReview?.createdAt || null
           },
           END: {
             hasSubmitted: endAnswers.length > 0 && endSelfComment,
@@ -161,22 +173,26 @@ export async function GET(request: NextRequest) {
             hodMaxScore: endHodMaxScore,
             asstMaxScore: endAsstMaxScore,
             deanMaxScore: 100,
-            status: endFinalReview?.submitted ? endFinalReview.status : 'PENDING',
-            promoted: endFinalReview?.submitted && endFinalReview?.status === 'PROMOTED',
+            status: endFinalReview?.submitted ? endFinalReview.status : 
+                    (endHodPerformanceReview?.submitted ? endHodPerformanceReview.status : 'PENDING'),
+            promoted: endFinalReview?.submitted && endFinalReview?.status === 'PROMOTED' ||
+                     endHodPerformanceReview?.submitted && endHodPerformanceReview.status === 'PROMOTED',
             hodReviewer: endHodReview?.reviewerId || null,
             asstReviewer: endAsstReview?.reviewerId || null,
-            deanReviewer: endFinalReview?.reviewerId || null,
+            deanReviewer: endFinalReview?.reviewerId || endHodPerformanceReview?.reviewerId || null,
             submittedAt: endSelfComment?.createdAt || null,
             hodReviewedAt: endHodReview?.createdAt || null,
             asstReviewedAt: endAsstReview?.createdAt || null,
-            finalReviewedAt: endFinalReview?.createdAt || null
+            finalReviewedAt: endFinalReview?.createdAt || endHodPerformanceReview?.createdAt || null
           }
         }
       }
     })
 
     const summary = {
-      totalTeachers: results.length,
+      totalStaff: results.length,
+      totalTeachers: results.filter(r => r.role === 'TEACHER').length,
+      totalHODs: results.filter(r => r.role === 'HOD').length,
       departmentsIncluded: [...new Set(results.map(r => r.department))],
       termsIncluded: ['START', 'END'],
       generatedAt: new Date().toISOString(),
@@ -186,7 +202,7 @@ export async function GET(request: NextRequest) {
     if (format === 'csv') {
       // Generate CSV
       const csvHeaders = [
-        'Teacher Name',
+        'Staff Name',
         'Email',
         'Department',
         'Role',
@@ -246,7 +262,7 @@ export async function GET(request: NextRequest) {
     }))
 
     return NextResponse.json({ results: withBands, summary })
-  } catch (error) {
+  } catch (_error) {
     
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

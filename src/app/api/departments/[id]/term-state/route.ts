@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { logger } from '@/lib/logger'
 
 export async function PUT(
   request: NextRequest,
@@ -218,8 +219,8 @@ export async function PUT(
     }
 
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
-  } catch (error) {
-    console.error('Error updating term state:', error)
+  } catch (_error) {
+    logger.error('Error updating term state', 'term-state', undefined, 'TERM_STATE_UPDATE_ERROR')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -266,7 +267,7 @@ export async function GET(
       })
 
       if (activeTerm) {
-        console.log(`Creating missing TermState for department ${departmentId} with active term: ${activeTerm.status} for year ${currentYear}`)
+        logger.info(`Creating missing TermState for department ${departmentId} with active term: ${activeTerm.status} for year ${currentYear}`, 'term-state', undefined, 'TERM_STATE_CREATION')
         termState = await prisma.termState.upsert({
           where: { 
             departmentId_year: {
@@ -286,16 +287,16 @@ export async function GET(
           },
           include: { department: true }
         })
-        console.log(`Successfully created TermState for department ${departmentId} for year ${currentYear}:`, termState)
+        logger.info(`Successfully created TermState for department ${departmentId} for year ${currentYear}`, 'term-state', undefined, 'TERM_STATE_CREATED')
       } else {
-        console.log(`No active terms found for department ${departmentId} for year ${currentYear}`)
+        logger.info(`No active terms found for department ${departmentId} for year ${currentYear}`, 'term-state', undefined, 'NO_ACTIVE_TERMS')
         return NextResponse.json({ departmentId, activeTerm: null, year: currentYear }, { status: 200 })
       }
     }
 
     return NextResponse.json(termState)
-  } catch (error) {
-    console.error('Error fetching term state:', error)
+  } catch (_error) {
+    logger.error('Error fetching term state', 'term-state', undefined, 'TERM_STATE_FETCH_ERROR')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

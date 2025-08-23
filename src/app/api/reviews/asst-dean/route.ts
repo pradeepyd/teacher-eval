@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(review)
     }
 
-    // Get all teachers with completed HOD reviews
+    // Get all teachers with completed HOD reviews AND all HODs
     const teachersWithHodReviews = await prisma.user.findMany({
       where: {
         role: 'TEACHER',
@@ -69,7 +69,25 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json(teachersWithHodReviews)
+    // Get all HODs (they can be reviewed by Assistant Dean)
+    const hods = await prisma.user.findMany({
+      where: {
+        role: 'HOD'
+      },
+      include: {
+        department: true,
+        receivedAsstReviews: {
+          where: {
+            term: term ? (term as 'START' | 'END') : undefined
+          }
+        }
+      }
+    })
+
+    // Combine teachers and HODs
+    const allStaff = [...teachersWithHodReviews, ...hods]
+
+    return NextResponse.json(allStaff)
   } catch (error) {
     console.error('Error fetching Assistant Dean reviews:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -103,51 +121,61 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Verify teacher exists
-    const teacher = await prisma.user.findUnique({
+    // Verify staff member exists (can be teacher or HOD)
+    const staffMember = await prisma.user.findUnique({
       where: { id: teacherId },
       include: { department: true }
     })
 
-    if (!teacher || teacher.role !== 'TEACHER') {
-      return NextResponse.json({ error: 'Teacher not found' }, { status: 404 })
+    if (!staffMember || !['TEACHER', 'HOD'].includes(staffMember.role)) {
+      return NextResponse.json({ error: 'Staff member not found' }, { status: 404 })
     }
 
-    // Check if teacher has submitted their evaluation
-    const teacherAnswers = await prisma.teacherAnswer.findMany({
-      where: {
-        teacherId,
-        term: term as 'START' | 'END'
-      }
-    })
+    // Check if staff member has submitted their evaluation
+    // For teachers: check teacherAnswers and selfComment
+    // For HODs: check if they have been reviewed by HOD (which is themselves, so skip this check)
+    let hasSubmittedEvaluation = true
+    
+    if (staffMember.role === 'TEACHER') {
+      const teacherAnswers = await prisma.teacherAnswer.findMany({
+        where: {
+          teacherId,
+          term: term as 'START' | 'END'
+        }
+      })
 
-    const selfComment = await prisma.selfComment.findUnique({
-      where: { 
-        teacherId_term_year: { 
-          teacherId, 
-          term: term as 'START' | 'END',
-          year: new Date().getFullYear()
-        } 
-      }
-    })
+      const selfComment = await prisma.selfComment.findUnique({
+        where: { 
+          teacherId_term_year: { 
+            teacherId, 
+            term: term as 'START' | 'END',
+            year: new Date().getFullYear()
+          } 
+        }
+      })
 
-    if (teacherAnswers.length === 0 || !selfComment) {
-      return NextResponse.json({ error: 'Teacher has not completed their evaluation' }, { status: 400 })
+      hasSubmittedEvaluation = teacherAnswers.length > 0 && !!selfComment
     }
 
-    // Check if HOD has reviewed
-    const hodReview = await prisma.hodReview.findUnique({
-      where: { 
-        teacherId_term_year: { 
-          teacherId, 
-          term: term as 'START' | 'END',
-          year: new Date().getFullYear()
-        } 
-      }
-    })
+    if (!hasSubmittedEvaluation) {
+      return NextResponse.json({ error: 'Staff member has not completed their evaluation' }, { status: 400 })
+    }
 
-    if (!hodReview || !hodReview.submitted) {
-      return NextResponse.json({ error: 'HOD review not completed' }, { status: 400 })
+    // Check if HOD has reviewed (only for teachers, not for HODs themselves)
+    if (staffMember.role === 'TEACHER') {
+      const hodReview = await prisma.hodReview.findUnique({
+        where: { 
+          teacherId_term_year: { 
+            teacherId, 
+            term: term as 'START' | 'END',
+            year: new Date().getFullYear()
+          } 
+        }
+      })
+
+      if (!hodReview || !hodReview.submitted) {
+        return NextResponse.json({ error: 'HOD review is required before Assistant Dean review' }, { status: 400 })
+      }
     }
 
     // Resolve termId for linkage

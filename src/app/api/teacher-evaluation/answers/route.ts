@@ -21,10 +21,31 @@ export async function PATCH(request: NextRequest) {
     }
 
     // If already submitted (all questions answered and self-comment exists), block editing
+    const currentYear = new Date().getFullYear()
     const [questionsCount, existingAnswersCount, selfComment] = await Promise.all([
-      prisma.question.count({ where: { departmentId: session.user.departmentId, term: term as 'START' | 'END' } }),
-      prisma.teacherAnswer.count({ where: { teacherId: session.user.id, term: term as 'START' | 'END' } }),
-      prisma.selfComment.findUnique({ where: { teacherId_term_year: { teacherId: session.user.id, term: term as 'START' | 'END', year: new Date().getFullYear() } } }),
+      prisma.question.count({ 
+        where: { 
+          departmentId: session.user.departmentId, 
+          term: term as 'START' | 'END',
+          year: currentYear
+        } 
+      }),
+      prisma.teacherAnswer.count({ 
+        where: { 
+          teacherId: session.user.id, 
+          term: term as 'START' | 'END',
+          year: currentYear
+        } 
+      }),
+      prisma.selfComment.findUnique({ 
+        where: { 
+          teacherId_term_year: { 
+            teacherId: session.user.id, 
+            term: term as 'START' | 'END', 
+            year: currentYear 
+          } 
+        } 
+      }),
     ])
     const isSubmitted = questionsCount > 0 && existingAnswersCount === questionsCount && !!selfComment
     if (isSubmitted) {

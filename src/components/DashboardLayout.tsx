@@ -4,6 +4,7 @@ import { useSession, signOut } from 'next-auth/react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
+import { PageErrorBoundary } from '@/components/ErrorBoundary'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -12,7 +13,7 @@ interface DashboardLayoutProps {
   showTitle?: boolean
 }
 
-export default function DashboardLayout({ children, title, showBack = true, showTitle = true }: DashboardLayoutProps) {
+function DashboardLayoutContent({ children, title, showBack = true, showTitle = true }: DashboardLayoutProps) {
   const { data: session } = useSession()
   const router = useRouter()
 
@@ -71,5 +72,13 @@ export default function DashboardLayout({ children, title, showBack = true, show
         </div>
       </div>
     </div>
+  )
+}
+
+export default function DashboardLayout(props: DashboardLayoutProps) {
+  return (
+    <PageErrorBoundary pageName="Dashboard Layout">
+      <DashboardLayoutContent {...props} />
+    </PageErrorBoundary>
   )
 }

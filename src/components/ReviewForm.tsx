@@ -1,19 +1,25 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-
-interface Question {
-  id: string
-  question: string
-  type: 'TEXT' | 'TEXTAREA' | 'MCQ' | 'CHECKBOX'
-  options: string[]
-  order: number
-}
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import { toast } from 'sonner'
+import { useReviewData } from '@/hooks/useReviewData'
 
 interface TeacherAnswer {
   id: string
+  questionId: string
   answer: string
-  question: Question
+  question: {
+    id: string
+    type: string
+    question: string
+    options?: string[]
+  }
 }
 
 interface TeacherData {
@@ -21,24 +27,19 @@ interface TeacherData {
     id: string
     name: string
     email: string
-    department: {
-      name: string
-    }
+    department: string
   }
   answers: TeacherAnswer[]
-  selfComment: string
-  hodReview?: {
-    comments: string
-    scores: any
-    reviewer: {
-      name: string
-    }
-  }
   existingReview?: {
+    id: string
     comments: string
-    scores: any
+    scores: {
+      questionScores: Record<string, number>
+      rubric: Record<string, number>
+      overallRating: number
+    }
     submitted: boolean
-  }
+  } | null
   canEdit: boolean
 }
 
@@ -49,7 +50,7 @@ interface ReviewFormProps {
   onSubmit: (data: {
     comments: string
     scores: {
-      questionScores: { [key: string]: number }
+      questionScores: Record<string, number>
       rubric: Record<string, number>
       professionalismSubtotal: number
       responsibilitiesSubtotal: number
@@ -71,6 +72,7 @@ export default function ReviewForm({
   onCancel, 
   loading = false 
 }: ReviewFormProps) {
+  const { fetchTeacherData, submitReview } = useReviewData()
   const [teacherData, setTeacherData] = useState<TeacherData | null>(null)
   const [comments, setComments] = useState('')
   const [scores, setScores] = useState<{ [key: string]: number }>({})
@@ -80,46 +82,35 @@ export default function ReviewForm({
   const [error, setError] = useState('')
 
   useEffect(() => {
-    const fetchTeacherData = async () => {
+    const fetchTeacherDataAsync = async () => {
       try {
-        const endpoint = reviewerRole === 'HOD' 
-          ? '/api/reviews/hod/teacher-data'
-          : '/api/reviews/asst-dean/teacher-data'
+        const data = await fetchTeacherData(teacherId, term, reviewerRole)
+        setTeacherData(data)
         
-        const response = await fetch(`${endpoint}?teacherId=${teacherId}&term=${term}`)
-        
-        if (response.ok) {
-          const data = await response.json()
-          setTeacherData(data)
-          
-          // Initialize form with existing data
-          if (data.existingReview) {
-            setComments(data.existingReview.comments)
-            setScores(data.existingReview.scores?.questionScores || {})
-            setRubricScores(data.existingReview.scores?.rubric || {})
-            setOverallRating(data.existingReview.scores?.overallRating || 0)
-          } else {
-            // Initialize scores with 0 for each question
-            const initialScores: { [key: string]: number } = {}
-            data.answers.forEach((answer: TeacherAnswer) => {
-              initialScores[answer.question.id] = 0
-            })
-            setScores(initialScores)
-            setRubricScores({})
-          }
+        // Initialize form with existing data
+        if (data.existingReview) {
+          setComments(data.existingReview.comments)
+          setScores(data.existingReview.scores?.questionScores || {})
+          setRubricScores(data.existingReview.scores?.rubric || {})
+          setOverallRating(data.existingReview.scores?.overallRating || 0)
         } else {
-          const errorData = await response.json()
-          setError(errorData.error || 'Failed to fetch teacher data')
+          // Initialize scores with 0 for each question
+          const initialScores: { [key: string]: number } = {}
+          data.answers.forEach((answer: TeacherAnswer) => {
+            initialScores[answer.question.id] = 0
+          })
+          setScores(initialScores)
+          setRubricScores({})
         }
-      } catch {
+      } catch (error) {
         setError('Error fetching teacher data')
       } finally {
         setFetchLoading(false)
       }
     }
 
-    fetchTeacherData()
-  }, [teacherId, term, reviewerRole])
+    fetchTeacherDataAsync()
+  }, [teacherId, term, reviewerRole, fetchTeacherData])
 
   const handleScoreChange = (questionId: string, score: number) => {
     if (!teacherData?.canEdit) return
@@ -159,7 +150,7 @@ export default function ReviewForm({
     const developmentSubtotal = sum(developmentKeys)
     const rubricTotal = professionalismSubtotal + responsibilitiesSubtotal + developmentSubtotal
 
-    onSubmit({
+    const reviewData = {
       comments: comments.trim(),
       scores: {
         questionScores: scores,
@@ -171,7 +162,25 @@ export default function ReviewForm({
       },
       overallRating,
       submitted
-    })
+    }
+
+    // Transform data to match the expected interface
+    const transformedData = {
+      teacherId,
+      comment: reviewData.comments,
+      score: reviewData.overallRating,
+      term
+    }
+    
+    // Use the hook's submitReview function
+    submitReview(transformedData, reviewerRole)
+      .then(() => {
+        onSubmit(reviewData)
+      })
+      .catch((error) => {
+        setError(error instanceof Error ? error.message : 'Failed to submit review')
+        toast.error('Failed to submit review')
+      })
   }
 
   const getTotalScore = () => {
@@ -236,13 +245,13 @@ export default function ReviewForm({
                 </span>
               </div>
               <p className="text-sm text-gray-600">
-                {teacherData.teacher.name} - {teacherData.teacher.department.name}
+                {teacherData.teacher.name} - {teacherData.teacher.department}
               </p>
             </div>
             {isSubmitted && (
-              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+              <Badge className="bg-green-100 text-green-800">
                 Submitted
-              </span>
+              </Badge>
             )}
           </div>
         </div>
@@ -256,7 +265,7 @@ export default function ReviewForm({
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Left Column - Teacher's Responses */}
-              <div className="space-y-6">
+            <div className="space-y-6">
               <h3 className="text-lg font-medium text-gray-900">Teacher's Responses</h3>
               
               {/* Teacher Answers */}
@@ -303,13 +312,13 @@ export default function ReviewForm({
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Score (0-10 points)
                       </label>
-                      <input
+                      <Input
                         type="number"
                         min="0"
                         max="10"
                         value={scores[answer.question.id] || 0}
                         onChange={(e) => handleScoreChange(answer.question.id, parseInt(e.target.value) || 0)}
-                        className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        className="w-20"
                         disabled={!teacherData.canEdit}
                       />
                     </div>
@@ -323,7 +332,9 @@ export default function ReviewForm({
                   Teacher's Self-Assessment Comment
                 </h4>
                 <div className="bg-blue-50 rounded p-3">
-                  <p className="text-blue-800">{teacherData.selfComment}</p>
+                  <p className="text-blue-800">
+                    {teacherData.answers.find(a => a.question.type === 'TEXTAREA' && a.question.question.includes('comment'))?.answer || 'No self-comment provided'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -415,19 +426,6 @@ export default function ReviewForm({
                 </div>
               </div>
 
-              {/* HOD Review (for Assistant Dean) */}
-              {reviewerRole === 'ASST_DEAN' && teacherData.hodReview && (
-                <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                  <h4 className="text-sm font-medium text-gray-900 mb-3">
-                    HOD Review by {teacherData.hodReview.reviewer.name}
-                  </h4>
-                  <p className="text-gray-700 mb-2">{teacherData.hodReview.comments}</p>
-                  <div className="text-sm text-gray-600">
-                    HOD Total Score: {(teacherData.hodReview.scores?.totalScore as number) ?? 0}
-                  </div>
-                </div>
-              )}
-
               {/* Overall Rating */}
               <div className="border border-gray-200 rounded-lg p-4">
                 <h4 className="text-sm font-medium text-gray-900 mb-3">Overall Performance Rating</h4>
@@ -435,14 +433,14 @@ export default function ReviewForm({
                   <label htmlFor="overallRating" className="block text-sm font-medium text-gray-700">
                     Overall Rating (1-10 points):
                   </label>
-                  <input
+                  <Input
                     id="overallRating"
                     type="number"
                     min="1"
                     max="10"
                     value={overallRating}
                     onChange={(e) => setOverallRating(parseInt(e.target.value) || 0)}
-                    className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    className="w-20"
                     disabled={!teacherData.canEdit}
                   />
                   <span className="text-sm text-gray-500">/ 10</span>
@@ -457,12 +455,11 @@ export default function ReviewForm({
                 <label htmlFor="comments" className="block text-sm font-medium text-gray-700 mb-2">
                   Review Comments
                 </label>
-                <textarea
+                <Textarea
                   id="comments"
                   value={comments}
                   onChange={(e) => setComments(e.target.value)}
                   rows={8}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                   placeholder={`Provide your ${reviewerRole === 'HOD' ? 'HOD' : 'Assistant Dean'} review comments...`}
                   disabled={!teacherData.canEdit}
                   required
@@ -472,29 +469,26 @@ export default function ReviewForm({
               {/* Action Buttons */}
               {teacherData.canEdit && (
                 <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
-                  <button
-                    type="button"
+                  <Button
+                    variant="outline"
                     onClick={onCancel}
-                    className="px-4 py-2 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors border-0"
+                    disabled={loading}
                   >
                     Cancel
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
+                    variant="outline"
                     onClick={() => handleSubmit(false)}
                     disabled={loading}
-                    className="px-4 py-2 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors border-0 disabled:opacity-50"
                   >
                     {loading ? 'Saving...' : 'Save Draft'}
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
                     onClick={() => handleSubmit(true)}
                     disabled={loading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
                     {loading ? 'Submitting...' : 'Submit Review'}
-                  </button>
+                  </Button>
                 </div>
               )}
 

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { logger } from '@/lib/logger'
 
 export async function POST(
   _request: NextRequest,
@@ -33,20 +34,46 @@ export async function POST(
     }
 
     const currentYear = new Date().getFullYear()
-    console.log(`Current year: ${currentYear}, Term year: ${term.year}`)
+    logger.info(`Starting term ${term.id} for year ${currentYear}`, 'admin')
+
+    // Validate business logic for each department before making changes
+    for (const department of term.departments) {
+      // Simple validation: check if department already has an active term for this year
+      const existingTermState = await prisma.termState.findUnique({
+        where: { 
+          departmentId_year: {
+            departmentId: department.id,
+            year: currentYear
+          }
+        }
+      })
+
+      if (existingTermState && existingTermState.activeTerm === 'START') {
+        logger.warn(
+          `Department ${department.name} already has START term active for year ${currentYear}`,
+          'admin',
+          session.user.id
+        )
+        
+        return NextResponse.json({ 
+          error: `Department ${department.name} already has START term active for year ${currentYear}`,
+          code: 'TERM_ALREADY_ACTIVE',
+          details: { departmentId: department.id, year: currentYear }
+        }, { status: 400 })
+      }
+    }
 
     // Activate the START term and update department term states
-    console.log(`Activating START term ${term.id} for ${term.departments.length} departments`)
-    console.log(`Departments:`, term.departments.map(d => ({ id: d.id, name: d.name })))
+    logger.info(`Activating START term ${term.id} for ${term.departments.length} departments`, 'admin')
     
     await prisma.$transaction(async (tx) => {
       // Term status remains 'START', we just activate it for departments
       // Update department term states to use this START term
       for (const department of term.departments) {
-        console.log(`Updating term state for department ${department.id} to activeTerm: START for year ${currentYear}`)
+        logger.info(`Updating term state for department ${department.id} to activeTerm: START for year ${currentYear}`, 'admin')
         
         // Check if termState already exists
-        const existing = await tx.termState.findUnique({
+        const _existing = await tx.termState.findUnique({
           where: { 
             departmentId_year: {
               departmentId: department.id,
@@ -54,9 +81,9 @@ export async function POST(
             }
           }
         })
-        console.log(`Existing term state for department ${department.id}:`, existing)
+        logger.info(`Existing term state for department ${department.id} found`, 'admin')
         
-        const result = await tx.termState.upsert({
+        const _result = await tx.termState.upsert({
           where: { 
             departmentId_year: {
               departmentId: department.id,
@@ -80,11 +107,11 @@ export async function POST(
             visibility: 'DRAFT'
           }
         })
-        console.log(`Term state updated for department ${department.id}:`, result)
+        logger.info(`Term state updated for department ${department.id}`, 'admin')
       }
     })
     
-    console.log(`Successfully activated START term ${term.id}`)
+    logger.info(`Successfully activated START term ${term.id}`, 'admin')
 
     return NextResponse.json({ 
       message: 'Term started successfully',
@@ -92,8 +119,8 @@ export async function POST(
       termId: resolved.id,
       activeTerm: 'START'
     })
-  } catch (error) {
-    console.error('Error starting term:', error)
+  } catch (_error) {
+    logger.error('Error starting term', 'admin')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

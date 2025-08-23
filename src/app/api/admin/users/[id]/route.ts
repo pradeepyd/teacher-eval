@@ -5,6 +5,10 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcrypt'
 import { z } from 'zod'
+import { revalidatePath } from 'next/cache'
+import { logger } from '@/lib/logger'
+import { createSuccessResponse, createApiErrorResponse, createUnauthorizedResponse, createValidationErrorResponse } from '@/lib/api-response'
+import type { Prisma } from '@prisma/client'
 
 // Password validation schema
 const passwordSchema = z.string()
@@ -13,49 +17,54 @@ const passwordSchema = z.string()
 
 export async function PUT(
   request: NextRequest,
-  { params }: any
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await getServerSession(authOptions)
     
     if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 400 })
+      return createUnauthorizedResponse()
     }
 
     const { name, email, role, departmentId, password } = await request.json()
 
     if (!name || !email || !role) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+      return createValidationErrorResponse(['Missing required fields'])
     }
 
     // Validate role
     const VALID_ROLES = ['TEACHER', 'HOD', 'ASST_DEAN', 'DEAN', 'ADMIN'] as const
     if (!VALID_ROLES.includes(role)) {
-      return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+      return createValidationErrorResponse(['Invalid role'])
     }
 
     // Check if email already exists for another user
     const existingUser = await prisma.user.findFirst({
       where: {
         email,
-        id: { not: params.id }
+        id: { not: id }
       }
     })
     if (existingUser) {
-      return NextResponse.json({ error: 'Email already exists' }, { status: 400 })
+      return createApiErrorResponse(
+        new Error('Email already exists'),
+        { operation: 'update user', component: 'AdminUsersAPI' },
+        400
+      )
     }
 
     // Validate department for non-admin roles
     if (role !== 'ADMIN' && !departmentId) {
-      return NextResponse.json({ error: 'Department ID is required for non-admin roles' }, { status: 400 })
+      return createValidationErrorResponse(['Department ID is required for non-admin roles'])
     }
 
     // Prepare update data
-    const updateData: any = {
+    const updateData: Prisma.UserUpdateInput = {
       name,
       email,
-      role,
-      departmentId: role === 'ADMIN' ? null : departmentId
+      role: role as Prisma.UserUpdateInput['role'],
+      department: role === 'ADMIN' ? { disconnect: true } : { connect: { id: departmentId! } }
     }
 
     // Hash password if provided
@@ -63,10 +72,9 @@ export async function PUT(
       // Validate password using Zod schema
       const passwordValidation = passwordSchema.safeParse(password)
       if (!passwordValidation.success) {
-        return NextResponse.json({ 
-          error: 'Password validation failed',
-          details: passwordValidation.error.issues.map(issue => issue.message)
-        }, { status: 400 })
+        return createValidationErrorResponse(
+          passwordValidation.error.issues.map(issue => issue.message)
+        )
       }
       
       const hashedPassword = await bcrypt.hash(password, 12)
@@ -74,53 +82,78 @@ export async function PUT(
     }
 
     const user = await prisma.user.update({
-      where: { id: params.id },
+      where: { id },
       data: updateData,
       include: {
         department: true
       }
     })
 
-    return NextResponse.json(user)
+    // Invalidate cache to refresh admin data
+    revalidatePath('/admin')
+    revalidatePath('/admin/users')
+
+    return createSuccessResponse(user)
   } catch (error) {
-    
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    const sessionForError = await getServerSession(authOptions)
+    logger.error('User update failed', 'api', sessionForError?.user?.id || 'unknown')
+    return createApiErrorResponse(error, {
+      operation: 'update user',
+      component: 'AdminUsersAPI'
+    })
   }
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: any
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await getServerSession(authOptions)
     
     if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return createUnauthorizedResponse()
     }
 
     // Check if user exists
     const user = await prisma.user.findUnique({
-      where: { id: params.id }
+      where: { id }
     })
 
     if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+      return createApiErrorResponse(
+        new Error('User not found'),
+        { operation: 'delete user', component: 'AdminUsersAPI' },
+        404
+      )
     }
 
     // Prevent admin from deleting themselves
     if (user.id === session.user.id) {
-      return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 })
+      return createApiErrorResponse(
+        new Error('Cannot delete your own account'),
+        { operation: 'delete user', component: 'AdminUsersAPI' },
+        400
+      )
     }
 
     // Delete user
     await prisma.user.delete({
-      where: { id: params.id }
+      where: { id }
     })
 
-    return NextResponse.json({ message: 'User deleted successfully' })
+    // Invalidate cache to refresh admin data
+    revalidatePath('/admin')
+    revalidatePath('/admin/users')
+
+    return createSuccessResponse({ message: 'User deleted successfully' })
   } catch (error) {
-    
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    const sessionForError = await getServerSession(authOptions)
+    logger.error('User deletion failed', 'api', sessionForError?.user?.id || 'unknown')
+    return createApiErrorResponse(error, {
+      operation: 'delete user',
+      component: 'AdminUsersAPI'
+    })
   }
 }

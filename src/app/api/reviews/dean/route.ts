@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { logger } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   try {
@@ -77,7 +78,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(teachersWithAsstReviews)
   } catch (error) {
-    console.error('Error fetching Dean reviews:', error)
+    logger.error('Error fetching Dean reviews', 'api', undefined, 'FETCH_DEAN_REVIEWS_ERROR')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -225,18 +226,11 @@ export async function POST(request: NextRequest) {
         }
       })
 
-      console.log(`Dean API - Term Completion Check:`, {
-        departmentId: teacher.departmentId,
-        term,
-        year: new Date().getFullYear(),
-        totalTeachersInDept,
-        finalizedTeachersInDept,
-        shouldComplete: finalizedTeachersInDept >= totalTeachersInDept
-      })
+      logger.info(`Dean API - Term Completion Check for department ${teacher.departmentId}`, 'api', undefined, 'TERM_COMPLETION_CHECK')
 
       // If all teachers in the department are finalized for this term, mark term as complete
       if (finalizedTeachersInDept >= totalTeachersInDept) {
-        console.log(`Dean API - Marking term as COMPLETE for department ${teacher.departmentId}, term ${term}`)
+        logger.info(`Dean API - Marking term as COMPLETE for department ${teacher.departmentId}, term ${term}`, 'api', undefined, 'TERM_COMPLETE')
         
         const updateResult = await prisma.termState.updateMany({
           where: {
@@ -258,10 +252,9 @@ export async function POST(request: NextRequest) {
           }
         })
         
-        console.log(`Dean API - Term completion update result:`, updateResult)
-        console.log(`Term marked as COMPLETE for department ${teacher.departmentId}, term ${term}, year ${new Date().getFullYear()}`)
+        logger.info(`Dean API - Term completion update result for department ${teacher.departmentId}`, 'api', undefined, 'TERM_UPDATE_SUCCESS')
       } else {
-        console.log(`Dean API - Not all teachers finalized yet. ${finalizedTeachersInDept}/${totalTeachersInDept} finalized`)
+        logger.info(`Dean API - Not all teachers finalized yet. ${finalizedTeachersInDept}/${totalTeachersInDept} finalized`, 'api', undefined, 'TERM_INCOMPLETE')
       }
     }
 
@@ -270,7 +263,7 @@ export async function POST(request: NextRequest) {
       review 
     })
   } catch (error) {
-    console.error('Error submitting Dean review:', error)
+    logger.error('Error submitting Dean review', 'api', undefined, 'DEAN_REVIEW_ERROR')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

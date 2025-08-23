@@ -3,10 +3,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { logger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
+  let session: any = null
+  
   try {
-    const session = await getServerSession(authOptions)
+    session = await getServerSession(authOptions)
     
     if (!session || session.user.role !== 'HOD') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -53,15 +56,15 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    console.log(`Published ${result.count} questions for department ${departmentId}, term ${term}, year ${year}`)
-    console.log(`Updated TermState visibility to PUBLISHED for ${term} term`)
+    logger.info(`Published ${result.count} questions for department ${departmentId}, term ${term}, year ${year}`, 'questions', session.user.id, 'QUESTIONS_PUBLISHED')
+    logger.info(`Updated TermState visibility to PUBLISHED for ${term} term`, 'questions', session.user.id, 'TERM_VISIBILITY_UPDATED')
 
     return NextResponse.json({ 
       message: `Successfully published ${result.count} questions`,
       publishedCount: result.count
     })
-  } catch (error) {
-    console.error('Error publishing questions:', error)
+  } catch (_error) {
+    logger.error('Error publishing questions', 'questions', session?.user?.id, 'QUESTIONS_PUBLISH_ERROR')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

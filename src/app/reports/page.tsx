@@ -1,25 +1,17 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useSession } from 'next-auth/react'
-import { toast } from 'sonner'
-import RoleGuard from '@/components/RoleGuard'
-import DashboardLayout from '@/components/DashboardLayout'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { FileDown, Search, BarChart3, Loader2 } from 'lucide-react'
-import Image from 'next/image'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Loader2, Filter, FileText, ArrowLeft, Search, RefreshCw, Circle, Download, Eye } from 'lucide-react'
+import { useSession } from 'next-auth/react'
 
-interface Department {
-  id: string
-  name: string
-}
-
-interface TeacherResult {
+interface EvaluationResult {
   id: string
   name: string
   email: string
@@ -28,536 +20,607 @@ interface TeacherResult {
   departmentId: string
   year: number
   terms: {
-    [key: string]: {
+    START: {
       hasSubmitted: boolean
       questionsAnswered: number
       maxQuestions: number
       hodScore: number
       asstScore: number
-      totalCombinedScore?: number
+      totalCombinedScore: number
       finalScore: number
       maxPossibleScore: number
-      hodMaxScore?: number
-      asstMaxScore?: number
-      deanMaxScore?: number
-      promoted?: boolean
       status: string
-      hodReviewer: string | null
-      asstReviewer: string | null
-      deanReviewer: string | null
-      submittedAt: string | null
-      hodReviewedAt: string | null
-      asstReviewedAt: string | null
-      finalReviewedAt: string | null
+      promoted: boolean
+      band: string
+    }
+    END: {
+      hasSubmitted: boolean
+      questionsAnswered: number
+      maxQuestions: number
+      hodScore: number
+      asstScore: number
+      totalCombinedScore: number
+      finalScore: number
+      maxPossibleScore: number
+      status: string
+      promoted: boolean
+      band: string
     }
   }
 }
 
-interface ResultsData {
-  results: TeacherResult[]
-  summary: {
-    totalTeachers: number
-    departmentsIncluded: string[]
-    termsIncluded: string[]
-    generatedAt: string
-    generatedBy: string
-  }
+interface ReportsSummary {
+  totalStaff: number
+  totalTeachers: number
+  totalHODs: number
+  departmentsIncluded: string[]
+  termsIncluded: string[]
+  generatedAt: string
+  generatedBy: string
 }
-
-const ITEMS_PER_PAGE = 10
 
 export default function ReportsPage() {
+  const router = useRouter()
   const { data: session } = useSession()
-  const [resultsData, setResultsData] = useState<ResultsData | null>(null)
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL')
-  const [selectedRole, setSelectedRole] = useState<string>('ALL')
-  const [selectedYear, setSelectedYear] = useState<string>('ALL')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [currentPage, setCurrentPage] = useState(1)
+  const [currentTime, setCurrentTime] = useState('')
+  const [evaluationResults, setEvaluationResults] = useState<EvaluationResult[]>([])
+  const [summary, setSummary] = useState<ReportsSummary | null>(null)
   const [loading, setLoading] = useState(false)
-  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null)
+  
+  // Filter states
+  const [departmentFilter, setDepartmentFilter] = useState('ALL')
+  const [roleFilter, setRoleFilter] = useState('ALL')
+  const [yearFilter, setYearFilter] = useState('ALL')
+  const [searchQuery, setSearchQuery] = useState('')
 
-  // Generate years for dropdown (current year and 5 years back)
-  const years = Array.from({ length: 6 }, (_, i) => {
-    const year = new Date().getFullYear() - i
-    return { value: year.toString(), label: year.toString() }
-  })
+  useEffect(() => {
+    setCurrentTime(new Date().toLocaleTimeString())
+    const interval = setInterval(() => {
+      setCurrentTime(new Date().toLocaleTimeString())
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
 
-  const roles = [
-    { value: 'ALL', label: 'All Roles' },
-    { value: 'TEACHER', label: 'Teacher' },
-    { value: 'HOD', label: 'Head of Department' },
-    { value: 'ASST_DEAN', label: 'Assistant Dean' },
-    { value: 'DEAN', label: 'Dean' },
-    { value: 'ADMIN', label: 'Admin' }
-  ]
-
-  // Fetch departments
-  const fetchDepartments = async () => {
-    try {
-      const response = await fetch('/api/departments/public')
-      if (!response.ok) {
-        throw new Error('Failed to fetch departments')
-      }
-      const data = await response.json()
-      setDepartments(data)
-    } catch (error) {
-
-      setError('Failed to load departments')
-      toast.error('Failed to load departments')
-    }
-  }
-
-  // Fetch results
-  const fetchResults = async () => {
+  // Fetch evaluation results
+  const fetchEvaluationResults = useCallback(async () => {
+    if (!session?.user) return
+    
     setLoading(true)
     setError(null)
-    setSuccess(null)
-
+    
     try {
       const params = new URLSearchParams()
-      if (selectedDepartment !== 'ALL') params.append('departmentId', selectedDepartment)
-      if (selectedRole !== 'ALL') params.append('role', selectedRole)
-      if (selectedYear !== 'ALL') params.append('year', selectedYear)
-      params.append('format', 'json')
-
-      const response = await fetch(`/api/reports/results?${params}`)
+      if (departmentFilter !== 'ALL') params.append('departmentId', departmentFilter)
+      if (roleFilter !== 'ALL') params.append('role', roleFilter)
+      if (yearFilter !== 'ALL') params.append('year', yearFilter)
+      
+      const response = await fetch(`/api/reports/results?${params.toString()}`)
       
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to fetch results')
+        throw new Error('Failed to fetch evaluation results')
       }
-
+      
       const data = await response.json()
-      setResultsData(data)
-      setSuccess('Report refreshed successfully!')
-      toast.success('Report refreshed successfully!')
-    } catch (error) {
-
-      const msg = error instanceof Error ? error.message : 'Failed to fetch results'
-      setError(msg)
-      toast.error(msg)
+      setEvaluationResults(data.results || [])
+      setSummary(data.summary || null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch data')
     } finally {
       setLoading(false)
     }
-  }
+  }, [session?.user, departmentFilter, roleFilter, yearFilter])
 
-  // Real-time status tracking
-  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date())
-  const [isRealTime, setIsRealTime] = useState(true)
+  // Load data on mount and when filters change
+  useEffect(() => {
+    fetchEvaluationResults()
+  }, [fetchEvaluationResults])
 
-  // Manual refresh function
-  const handleManualRefresh = () => {
-    fetchResults().finally(() => { 
-      setLastRefreshTime(new Date())
-    })
-  }
-
-  // Get real-time status indicators
-  const getStatusIndicator = (status: string) => {
-    switch (status) {
-      case 'PROMOTED': return '🟢'
-      case 'ON_HOLD': return '🟡'
-      case 'NEEDS_IMPROVEMENT': return '🔴'
-      case 'PENDING': return '⚪'
-      default: return '⚪'
-    }
-  }
-
-  // Calculate real-time metrics
-  const getRealTimeMetrics = () => {
-    if (!resultsData) return null
+  // Download individual PDF report - EXACT same as teacher/HOD dashboards
+  const downloadIndividualReport = useCallback(async (userId: string, userName: string, userRole: string, term: 'START' | 'END') => {
+    setDownloadingPdf(`${userId}-${term}`)
     
-    const totalTeachers = resultsData.results.length
-    const completedEvaluations = resultsData.results.filter(r => 
-      Object.values(r.terms).some((t: any) => t.hasSubmitted)
-    ).length
-    const pendingEvaluations = totalTeachers - completedEvaluations
-    const promotedCount = resultsData.results.filter(r => 
-      Object.values(r.terms).some((t: any) => t.status === 'PROMOTED')
-    ).length
+    try {
+      let evaluationData: any
+      
+      if (userRole === 'TEACHER') {
+        // Use admin API endpoint to fetch teacher evaluation data
+        const response = await fetch('/api/admin/teacher-evaluation-report', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ teacherId: userId, term })
+        })
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch teacher evaluation data')
+        }
+        
+        evaluationData = await response.json()
+      } else if (userRole === 'HOD') {
+        // Use admin API endpoint to fetch HOD evaluation data
+        const response = await fetch('/api/admin/hod-evaluation-report', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ hodId: userId, term })
+        })
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch HOD evaluation data')
+        }
+        
+        evaluationData = await response.json()
+      }
 
-    return {
-      totalTeachers,
-      completedEvaluations,
-      pendingEvaluations,
-      promotedCount,
-      completionRate: totalTeachers > 0 ? Math.round((completedEvaluations / totalTeachers) * 100) : 0
+      // Generate PDF using jsPDF - EXACT same logic as teacher/HOD dashboards
+      const { jsPDF } = await import('jspdf')
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      
+      if (userRole === 'TEACHER') {
+        // EXACT same PDF structure as teacher dashboard
+        pdf.setFontSize(20)
+        pdf.text('Teacher Performance Evaluation Report', 105, 20, { align: 'center' })
+        
+        pdf.setFontSize(12)
+        pdf.text(`${term} Term ${new Date().getFullYear()}`, 105, 30, { align: 'center' })
+        
+        pdf.setFontSize(14)
+        pdf.text('Teacher Information', 20, 50)
+        pdf.setFontSize(10)
+        pdf.text(`Name: ${userName}`, 20, 60)
+        pdf.text(`Department: ${evaluationResults.find(r => r.id === userId)?.department || 'N/A'}`, 20, 70)
+        pdf.text(`Term: ${term}`, 20, 80)
+        
+        // Add evaluation data - EXACT same as teacher dashboard
+        let yPosition = 100
+        
+        // HOD Evaluation
+        if (evaluationData.hodComment || evaluationData.hodScore || evaluationData.hodTotalScore) {
+          pdf.setFontSize(14)
+          pdf.text('HOD Evaluation', 20, yPosition)
+          pdf.setFontSize(10)
+          yPosition += 10
+          
+          if (evaluationData.hodComment) {
+            pdf.text(`Comments: ${evaluationData.hodComment}`, 20, yPosition)
+            yPosition += 10
+          }
+          
+          if (evaluationData.hodScore !== null && evaluationData.hodScore !== undefined) {
+            pdf.text(`Overall Rating: ${evaluationData.hodScore}/10`, 20, yPosition)
+            yPosition += 10
+          }
+          
+          if (evaluationData.hodTotalScore !== null && evaluationData.hodTotalScore !== undefined) {
+            pdf.text(`Rubric Total Score: ${evaluationData.hodTotalScore}`, 20, yPosition)
+            yPosition += 10
+          }
+        }
+        
+        // Assistant Dean Evaluation
+        if (evaluationData.asstDeanComment || evaluationData.asstDeanScore) {
+          pdf.setFontSize(14)
+          pdf.text('Assistant Dean Evaluation', 20, yPosition)
+          pdf.setFontSize(10)
+          yPosition += 10
+          
+          if (evaluationData.asstDeanComment) {
+            pdf.text(`Comments: ${evaluationData.asstDeanComment}`, 20, yPosition)
+            yPosition += 10
+          }
+          
+          if (evaluationData.asstDeanScore !== null && evaluationData.asstDeanScore !== undefined) {
+            pdf.text(`Score: ${evaluationData.asstDeanScore}/10`, 20, yPosition)
+            yPosition += 10
+          }
+        }
+        
+        // Dean Final Review
+        if (evaluationData.deanComment || evaluationData.finalScore || evaluationData.promoted !== undefined) {
+          pdf.setFontSize(14)
+          pdf.text('Dean Final Review', 20, yPosition)
+          pdf.setFontSize(10)
+          yPosition += 10
+          
+          if (evaluationData.deanComment) {
+            pdf.text(`Comments: ${evaluationData.deanComment}`, 20, yPosition)
+            yPosition += 10
+          }
+          
+          if (evaluationData.finalScore !== null && evaluationData.finalScore !== undefined) {
+            pdf.text(`Final Score: ${evaluationData.finalScore}/10`, 20, yPosition)
+            yPosition += 10
+          }
+          
+          if (evaluationData.promoted !== undefined) {
+            pdf.text(`Promotion Status: ${evaluationData.promoted ? 'PROMOTED' : 'NOT PROMOTED'}`, 20, yPosition)
+          }
+        }
+        
+      } else if (userRole === 'HOD') {
+        // EXACT same PDF structure as HOD dashboard
+        pdf.setFontSize(20)
+        pdf.text('HOD Performance Evaluation Report', 105, 20, { align: 'center' })
+        
+        pdf.setFontSize(12)
+        pdf.text(`${term} Term ${new Date().getFullYear()}`, 105, 30, { align: 'center' })
+        
+        pdf.setFontSize(14)
+        pdf.text('HOD Information', 20, 50)
+        pdf.setFontSize(10)
+        pdf.text(`Name: ${userName}`, 20, 60)
+        pdf.text(`Department: ${evaluationResults.find(r => r.id === userId)?.department || 'N/A'}`, 20, 70)
+        pdf.text(`Term: ${term}`, 20, 80)
+        
+        // Add evaluation data - EXACT same as HOD dashboard
+        let yPosition = 100
+        
+        // Assistant Dean Evaluation
+        if (evaluationData.asstDeanComment || evaluationData.asstDeanScore) {
+          pdf.setFontSize(14)
+          pdf.text('Assistant Dean Evaluation', 20, yPosition)
+          pdf.setFontSize(10)
+          yPosition += 10
+          
+          if (evaluationData.asstDeanComment) {
+            pdf.text(`Comments: ${evaluationData.asstDeanComment}`, 20, yPosition)
+            yPosition += 10
+          }
+          
+          if (evaluationData.asstDeanScore !== null && evaluationData.asstDeanScore !== undefined) {
+            pdf.text(`Score: ${evaluationData.asstDeanScore}%`, 20, yPosition)
+            yPosition += 10
+          }
+        }
+        
+        // Dean Final Review
+        if (evaluationData.deanComment || evaluationData.deanScore || evaluationData.promoted !== undefined) {
+          pdf.setFontSize(14)
+          pdf.text('Dean Final Review', 20, yPosition)
+          pdf.setFontSize(10)
+          yPosition += 10
+          
+          if (evaluationData.deanComment) {
+            pdf.text(`Comments: ${evaluationData.deanComment}`, 20, yPosition)
+            yPosition += 10
+          }
+          
+          if (evaluationData.deanScore !== null && evaluationData.deanScore !== undefined) {
+            pdf.text(`Final Score: ${evaluationData.deanScore}%`, 20, yPosition)
+            yPosition += 10
+          }
+          
+          if (evaluationData.promoted !== undefined) {
+            pdf.text(`Promotion Status: ${evaluationData.promoted ? 'PROMOTED' : 'NOT PROMOTED'}`, 20, yPosition)
+          }
+        }
+      }
+      
+      // Save PDF with exact same naming convention
+      const fileName = `${userName}_${term}_${new Date().getFullYear()}_Evaluation.pdf`
+      pdf.save(fileName)
+      
+    } catch (err) {
+      console.error('Error generating PDF:', err)
+      setError('Failed to generate PDF report')
+    } finally {
+      setDownloadingPdf(null)
     }
-  }
+  }, [evaluationResults])
+
+  // Filter results based on search query
+  const filteredResults = evaluationResults.filter(result => {
+    const matchesSearch = searchQuery === '' || 
+      result.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      result.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      result.department.toLowerCase().includes(searchQuery.toLowerCase())
+    
+    return matchesSearch
+  })
+
+  // Get unique departments for filter
+  const uniqueDepartments = Array.from(new Set(evaluationResults.map(r => r.department)))
 
   // Get status color
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'PROMOTED': return 'bg-green-100 text-green-800'
-      case 'ON_HOLD': return 'bg-yellow-100 text-yellow-800'
-      case 'NEEDS_IMPROVEMENT': return 'bg-red-100 text-red-800'
-      case 'PENDING': return 'bg-gray-100 text-gray-800'
-      default: return 'bg-gray-100 text-gray-800'
+      case 'PROMOTED': return 'default'
+      case 'NOT_PROMOTED': return 'destructive'
+      case 'PENDING': return 'secondary'
+      default: return 'outline'
     }
   }
 
-  // Get performance percentage
-  const getPerformancePercentage = (finalScore: number, maxScore: number) => {
-    return maxScore > 0 ? Math.round((finalScore / maxScore) * 100) : 0
-  }
-
-  // Load data on component mount
-
-  useEffect(() => {
-    const role = (session?.user as any)?.role as string | undefined
-    if (session?.user) {
-      if (role === 'DEAN' || role === 'ASST_DEAN' || role === 'ADMIN') {
-        fetchDepartments()
-      }
-      // Scope UI controls by role
-      if (role === 'HOD') {
-        setSelectedRole('TEACHER')
-      }
-      if (role === 'TEACHER') {
-        setSelectedRole('TEACHER')
-      }
-      fetchResults()
+  // Get status text
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'PROMOTED': return 'Promoted'
+      case 'NOT_PROMOTED': return 'Not Promoted'
+      case 'PENDING': return 'Pending'
+      default: return status || 'Not Available'
     }
-  }, [session])
-
-  // Filter and paginate results
-  const filteredResults = resultsData?.results.filter(teacher => {
-    const matchesSearch = teacher.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         teacher.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         teacher.department.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesRole = selectedRole === 'ALL' || teacher.role === selectedRole
-    const matchesYear = selectedYear === 'ALL' || teacher.year.toString() === selectedYear
-    return matchesSearch && matchesRole && matchesYear
-  }) || []
-
-  const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE)
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedResults = filteredResults.slice(startIndex, startIndex + ITEMS_PER_PAGE)
-
-  if (!session?.user) {
-    return (
-      <RoleGuard allowedRoles={['TEACHER', 'HOD', 'ASST_DEAN', 'DEAN', 'ADMIN']}>
-        <DashboardLayout title="Evaluation Results & Reports">
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin" />
-          </div>
-        </DashboardLayout>
-      </RoleGuard>
-    )
   }
 
   return (
-    <RoleGuard allowedRoles={['TEACHER', 'HOD', 'ASST_DEAN', 'DEAN', 'ADMIN']}>
-      <DashboardLayout title="Evaluation Results & Reports">
-        <div className="mb-6">
-          <Card className="bg-gradient-to-r from-blue-50 to-indigo-100">
-            <CardContent className="py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    Welcome, {session.user.name}!
-                  </h2>
-                  <p className="text-gray-600">
-                    Evaluation Results & Reports Dashboard
-                  </p>
-                </div>
-                <Badge variant="outline" className="text-base">{(session.user as any).role}</Badge>
-              </div>
+    <div className="container mx-auto py-8 space-y-8 px-6 max-w-7xl">
+      {/* Back Button */}
+      <Button 
+        variant="outline" 
+        className="flex items-center gap-2"
+        onClick={() => router.back()}
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back
+      </Button>
+
+      {/* Page Title */}
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Evaluation Results & Reports</h1>
+        <p className="text-gray-600">Comprehensive evaluation data and individual PDF reports for all staff members</p>
+      </div>
+
+      {/* Welcome Card */}
+      <Card className="bg-blue-50 border-blue-200 shadow-sm">
+        <CardContent className="pt-8 pb-6 px-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Welcome, {session?.user?.name || 'Admin'}!</h2>
+              <p className="text-gray-600">Evaluation Results & Reports Dashboard</p>
+            </div>
+            <div className="text-right">
+              <Badge variant="secondary" className="text-sm font-semibold">ADMIN</Badge>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary Stats */}
+      {summary && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+          <Card className="shadow-sm">
+            <CardContent className="pt-8 pb-6 px-6">
+              <div className="text-2xl font-bold text-blue-600">{summary.totalStaff}</div>
+              <p className="text-xs text-muted-foreground">Total Staff</p>
+            </CardContent>
+          </Card>
+          <Card className="shadow-sm">
+            <CardContent className="pt-8 pb-6 px-6">
+              <div className="text-2xl font-bold text-green-600">{summary.totalTeachers}</div>
+              <p className="text-xs text-muted-foreground">Total Teachers</p>
+            </CardContent>
+          </Card>
+          <Card className="shadow-sm">
+            <CardContent className="pt-8 pb-6 px-6">
+              <div className="text-2xl font-bold text-orange-600">{summary.totalHODs}</div>
+              <p className="text-xs text-muted-foreground">Total HODs</p>
+            </CardContent>
+          </Card>
+          <Card className="shadow-sm">
+            <CardContent className="pt-8 pb-6 px-6">
+              <div className="text-2xl font-bold text-purple-600">{summary.departmentsIncluded.length}</div>
+              <p className="text-xs text-muted-foreground">Departments</p>
             </CardContent>
           </Card>
         </div>
+      )}
 
-
-
-        <div className="space-y-6">
-          {/* Filters */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Filters</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Department Filter */}
-                {(((session?.user as any)?.role) === 'DEAN' || ((session?.user as any)?.role) === 'ASST_DEAN' || ((session?.user as any)?.role) === 'ADMIN') && (
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">Department</label>
-                    <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Departments" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ALL">All Departments</SelectItem>
-                        {departments.map(dept => (
-                          <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                {/* Role Filter */}
-                {(((session?.user as any)?.role) !== 'TEACHER') && (
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Role</label>
-                  <Select value={selectedRole} onValueChange={setSelectedRole}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All Roles" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {roles.map(role => (
-                        <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                )}
-
-                {/* Year Filter */}
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Year</label>
-                  <Select value={selectedYear} onValueChange={setSelectedYear}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All Years" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All Years</SelectItem>
-                      {years.map(year => (
-                        <SelectItem key={year.value} value={year.value}>{year.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Search */}
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Search</label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                    <Input
-                      placeholder="Search users..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-                </div>
+      {/* Filters Section */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg">Filters</CardTitle>
+          <CardDescription>Filter evaluation results by department, role, year, or search terms</CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div>
+              <label className="text-sm font-medium">Department</label>
+              <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Departments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Departments</SelectItem>
+                  {uniqueDepartments.map(dept => (
+                    <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Role</label>
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Roles" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Roles</SelectItem>
+                  <SelectItem value="TEACHER">Teacher</SelectItem>
+                  <SelectItem value="HOD">HOD</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Year</label>
+              <Select value={yearFilter} onValueChange={setYearFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Years" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Years</SelectItem>
+                  <SelectItem value="2024">2024</SelectItem>
+                  <SelectItem value="2023">2023</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Search</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search users..."
+                  className="pl-10"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
+            </div>
+          </div>
+          
+          {/* Refresh Button and Status */}
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+            <Button 
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={fetchEvaluationResults}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              {loading ? 'Loading...' : 'Refresh Data'}
+            </Button>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Circle className="w-2 h-2 text-green-500 fill-current" />
+              <span>Real-time data</span>
+              <span>•</span>
+              <span>Last updated: {currentTime || 'Loading...'}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-              <div className="flex justify-between items-center mt-4">
-                <Button onClick={handleManualRefresh} disabled={loading}>
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Refreshing...
-                    </>
-                  ) : (
-                    '🔄 Refresh Data'
-                  )}
-                </Button>
+      {/* Error Display */}
+      {error && (
+        <Card className="border-red-200 bg-red-50 shadow-sm">
+          <CardContent className="pt-6 pb-6 px-6">
+            <p className="text-red-800">{error}</p>
+          </CardContent>
+        </Card>
+      )}
 
-                {/* Status Info */}
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span className="text-sm text-gray-600">
-                      Real-time data
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    Last updated: {lastRefreshTime.toLocaleTimeString()}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Results Summary */}
-          {resultsData && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5" />
-                    Live Report Summary
-                  </CardTitle>
-                                     <div className="flex items-center space-x-2">
-                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                     <span className="text-xs text-gray-500">
-                       Real-time Data
-                     </span>
-                   </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">{getRealTimeMetrics()?.totalTeachers || 0}</div>
-                    <div className="text-sm text-gray-600">Total Teachers</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{getRealTimeMetrics()?.completedEvaluations || 0}</div>
-                    <div className="text-sm text-gray-600">Completed</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-600">{getRealTimeMetrics()?.pendingEvaluations || 0}</div>
-                    <div className="text-sm text-gray-600">Pending</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-orange-600">{getRealTimeMetrics()?.promotedCount || 0}</div>
-                    <div className="text-sm text-gray-600">Promoted</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-indigo-600">{getRealTimeMetrics()?.completionRate || 0}%</div>
-                    <div className="text-sm text-gray-600">Completion Rate</div>
-                  </div>
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                  <div className="text-xs text-gray-500">
-                    Generated by {resultsData.summary.generatedBy} on {new Date(resultsData.summary.generatedAt).toLocaleString()}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    Last refreshed: {lastRefreshTime.toLocaleTimeString()}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+      {/* Results Table */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-4">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <FileText className="h-5 w-5" />
+            Evaluation Results
+          </CardTitle>
+          <CardDescription>
+            {filteredResults.length > 0 
+              ? `Showing ${filteredResults.length} staff members` 
+              : 'No results found'
+            }
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-8 h-8 animate-spin" />
+              <span className="ml-2">Loading evaluation results...</span>
+            </div>
+          ) : filteredResults.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+              <p>No results to display.</p>
+              <p className="text-sm">Try adjusting your filters or search criteria.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border rounded-lg">
+              <Table className="min-w-full">
+                <TableHeader>
+                  <TableRow className="bg-gray-50">
+                    <TableHead className="px-3 py-2 text-xs font-medium text-gray-700 uppercase tracking-wider">Name</TableHead>
+                    <TableHead className="px-3 py-2 text-xs font-medium text-gray-700 uppercase tracking-wider">Role</TableHead>
+                    <TableHead className="px-3 py-2 text-xs font-medium text-gray-700 uppercase tracking-wider">Department</TableHead>
+                    <TableHead className="px-3 py-2 text-xs font-medium text-gray-700 uppercase tracking-wider">Start Term</TableHead>
+                    <TableHead className="px-3 py-2 text-xs font-medium text-gray-700 uppercase tracking-wider">End Term</TableHead>
+                    <TableHead className="px-3 py-2 text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredResults.map((result) => (
+                    <TableRow key={result.id} className="hover:bg-gray-50">
+                      <TableCell className="px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm truncate">{result.name}</div>
+                          <div className="text-xs text-gray-500 truncate">{result.email}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-3 py-2">
+                        <Badge variant={result.role === 'HOD' ? 'default' : 'secondary'} className="text-xs">
+                          {result.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="px-3 py-2">
+                        <div className="text-sm truncate max-w-24">{result.department}</div>
+                      </TableCell>
+                                             <TableCell className="px-3 py-2">
+                         <div className="min-w-0">
+                           {result.terms.START.promoted !== undefined ? (
+                             <Badge variant={result.terms.START.promoted ? 'default' : 'destructive'} className="text-xs">
+                               {result.terms.START.promoted ? 'Promoted' : 'Not Promoted'}
+                             </Badge>
+                           ) : (
+                             <div className="text-xs font-medium">{getStatusText(result.terms.START.status)}</div>
+                           )}
+                         </div>
+                       </TableCell>
+                       <TableCell className="px-3 py-2">
+                         <div className="min-w-0">
+                           {result.terms.END.promoted !== undefined ? (
+                             <Badge variant={result.terms.END.promoted ? 'default' : 'destructive'} className="text-xs">
+                               {result.terms.END.promoted ? 'Promoted' : 'Not Promoted'}
+                             </Badge>
+                           ) : (
+                             <div className="text-xs font-medium">{getStatusText(result.terms.END.status)}</div>
+                           )}
+                         </div>
+                       </TableCell>
+                      <TableCell className="px-3 py-2">
+                        <div className="flex gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => downloadIndividualReport(result.id, result.name, result.role, 'START')}
+                            disabled={downloadingPdf === `${result.id}-START`}
+                            className="h-7 px-2 text-xs"
+                          >
+                            {downloadingPdf === `${result.id}-START` ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Download className="w-3 h-3" />
+                            )}
+                            Start
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => downloadIndividualReport(result.id, result.name, result.role, 'END')}
+                            disabled={downloadingPdf === `${result.id}-END`}
+                            className="h-7 px-2 text-xs"
+                          >
+                            {downloadingPdf === `${result.id}-END` ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Download className="w-3 h-3" />
+                            )}
+                            End
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
-
-          {/* Results Table */}
-          {resultsData && paginatedResults.length > 0 && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Teacher Evaluation Results</CardTitle>
-                                     <div className="flex items-center space-x-2">
-                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                     <span className="text-xs text-gray-500">
-                       Real-time Data
-                     </span>
-                   </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                                 <Table>
-                   <TableHeader>
-                     <TableRow>
-                       <TableHead>Teacher</TableHead>
-                       <TableHead>Department</TableHead>
-                       <TableHead>Role</TableHead>
-                       <TableHead>Year</TableHead>
-                       <TableHead>Performance</TableHead>
-                       <TableHead>Promoted</TableHead>
-                       <TableHead>Status</TableHead>
-                     </TableRow>
-                   </TableHeader>
-                  <TableBody>
-                    {paginatedResults.map((teacher) => 
-                      Object.entries(teacher.terms).map(([termKey, termData]: [string, any]) => {
-                        if (!termData.hasSubmitted) return null
-                        
-                        return (
-                                                     <TableRow key={`${teacher.id}-${termKey}`}>
-                             <TableCell>
-                               <div>
-                                 <div className="font-medium">{teacher.name}</div>
-                                 <div className="text-sm text-gray-500">{teacher.email}</div>
-                               </div>
-                             </TableCell>
-                             <TableCell>{teacher.department}</TableCell>
-                             <TableCell>
-                               <Badge variant="outline">{teacher.role}</Badge>
-                             </TableCell>
-                             <TableCell>{teacher.year}</TableCell>
-                             <TableCell>
-                               <div className="text-center">
-                                 <div className="text-lg font-semibold text-blue-600">
-                                   {getPerformancePercentage(termData.totalCombinedScore || (termData.hodScore + termData.asstScore), termData.maxPossibleScore)}%
-                                 </div>
-                                 <div className="text-xs text-gray-500">
-                                   {termData.totalCombinedScore || (termData.hodScore + termData.asstScore)}/{termData.maxPossibleScore}
-                                 </div>
-                               </div>
-                             </TableCell>
-                             <TableCell>
-                               <Badge className={termData.promoted ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                                 {termData.promoted ? '✓ YES' : '✗ NO'}
-                               </Badge>
-                             </TableCell>
-                             <TableCell>
-                               <div className="flex items-center space-x-2">
-                                 <span className="text-lg">{getStatusIndicator(termData.status)}</span>
-                                 <Badge className={getStatusColor(termData.status)}>
-                                   {termData.status.replace('_', ' ')}
-                                 </Badge>
-                               </div>
-                             </TableCell>
-                           </TableRow>
-                        )
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {startIndex + 1} to {Math.min(startIndex + ITEMS_PER_PAGE, filteredResults.length)} of {filteredResults.length} results
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(currentPage - 1)}
-                        disabled={currentPage === 1}
-                      >
-                        Previous
-                      </Button>
-                      <span className="text-sm">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* No Results */}
-          {resultsData && filteredResults.length === 0 && (
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center py-8">
-                  <div className="relative mx-auto w-24 h-24 mb-4">
-                    <Image
-                      src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=100&q=80"
-                      alt="No results"
-                      fill
-                      className="object-cover rounded-lg"
-                    />
-                  </div>
-                  <h3 className="mt-4 text-lg font-semibold">No evaluation results found</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Try adjusting your filters or check if evaluations have been completed
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </DashboardLayout>
-    </RoleGuard>
+        </CardContent>
+      </Card>
+    </div>
   )
 }

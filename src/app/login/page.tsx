@@ -19,6 +19,8 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeClosed } from 'lucide-react';
+import { useCommonData } from '@/hooks/useCommonData';
+import { PageErrorBoundary } from '@/components/ErrorBoundary';
 
 const EDUCATION_IMAGE =
   'https://images.unsplash.com/photo-1513258496099-48168024aec0?auto=format&fit=crop&w=800&q=80';
@@ -38,11 +40,12 @@ const LoginSchema = z
 
 type LoginSchemaType = z.infer<typeof LoginSchema>;
 
-export default function LoginPage() {
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [departmentsLoading, setDepartmentsLoading] = useState(true);
-  const [showPassword, setShowPassword] = useState(false);
+function LoginPageContent() {
   const router = useRouter();
+  const { departments, loading: departmentsLoading } = useCommonData();
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const {
     register,
@@ -56,11 +59,7 @@ export default function LoginPage() {
   });
 
   useEffect(() => {
-    fetch('/api/departments/public')
-      .then((res) => res.json())
-      .then((data) => Array.isArray(data) ? setDepartments(data) : toast.error('Invalid department data'))
-      .catch(() => toast.error('Failed to load departments'))
-      .finally(() => setDepartmentsLoading(false));
+    // This useEffect is now handled by useCommonData
   }, []);
 
   const onSubmit = async (formData: LoginSchemaType) => {
@@ -190,5 +189,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <PageErrorBoundary pageName="Login Page">
+      <LoginPageContent />
+    </PageErrorBoundary>
   );
 }

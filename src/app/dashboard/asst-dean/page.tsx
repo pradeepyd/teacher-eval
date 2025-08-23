@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
@@ -17,6 +17,8 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { toast } from 'sonner'
+import { safeArray, safeNumber } from '@/lib/safe-access'
+import { PageErrorBoundary, DataErrorBoundary } from '@/components/ErrorBoundary'
 
 interface Department {
   id: string
@@ -68,8 +70,8 @@ interface Teacher {
   canReview: boolean
 }
 
-export default function AsstDeanDashboard() {
-  const { data: session } = useSession()
+function AsstDeanDashboardContent() {
+  const { data: session, status } = useSession()
   const [departments, setDepartments] = useState<Department[]>([])
   const [selectedDept, setSelectedDept] = useState<string>('')
   const [teachers, setTeachers] = useState<Teacher[]>([])
@@ -106,8 +108,57 @@ export default function AsstDeanDashboard() {
   const [hodSelected, setHodSelected] = useState<HodItem | null>(null)
   const [openHodId, setOpenHodId] = useState<string | null>(null)
 
+  // Safe data access with comprehensive error handling
+  const safeDepartments = safeArray(departments) as Department[]
+  const safeTeachers = safeArray(teachers) as Teacher[]
+  const safeHods = safeArray(hods) as HodItem[]
+  const safeDepartmentStates = departmentStates || {}
+
+    // Fetch department states for term completion status (with batching)
+  const fetchDepartmentStates = useCallback(async (deptList: Department[]) => {
+    try {
+      const states: Record<string, any> = {}
+      
+      // Only fetch term states for first 3 departments initially to reduce API calls
+      const initialDepts = deptList.slice(0, 3)
+      
+      for (const dept of initialDepts) {
+        try {
+          const response = await fetch(`/api/departments/${dept.id}/term-state`)
+          if (response.ok) {
+            const data = await response.json()
+            states[dept.id] = data
+          }
+        } catch (error) {
+   
+        }
+      }
+      setDepartmentStates(states)
+      
+      // Fetch remaining departments in background if needed
+      if (deptList.length > 3) {
+        setTimeout(async () => {
+          const remainingDepts = deptList.slice(3)
+          for (const dept of remainingDepts) {
+            try {
+              const response = await fetch(`/api/departments/${dept.id}/term-state`)
+              if (response.ok) {
+                const data = await response.json()
+                setDepartmentStates(prev => ({ ...prev, [dept.id]: data }))
+              }
+            } catch (error) {
+              // Silent fail for background fetches
+            }
+          }
+        }, 2000) // Delay background fetch
+      }
+    } catch (error) {
+      
+    }
+  }, [])
+
   // Fetch departments
-  const fetchDepartments = async () => {
+  const fetchDepartments = useCallback(async () => {
     try {
       const response = await fetch('/api/departments/public')
       if (!response.ok) {
@@ -124,31 +175,10 @@ export default function AsstDeanDashboard() {
 
       setError('Failed to load departments')
     }
-  }
-
-  // Fetch department states for term completion status
-  const fetchDepartmentStates = async (deptList: Department[]) => {
-    try {
-      const states: Record<string, any> = {}
-      for (const dept of deptList) {
-        try {
-          const response = await fetch(`/api/departments/${dept.id}/term-state`)
-          if (response.ok) {
-            const data = await response.json()
-            states[dept.id] = data
-          }
-        } catch (error) {
-  
-        }
-      }
-      setDepartmentStates(states)
-    } catch (error) {
-      
-    }
-  }
+  }, [fetchDepartmentStates])
 
   // Fetch teachers for the selected department
-  const fetchTeachers = async () => {
+  const fetchTeachers = useCallback(async () => {
     if (!selectedDept) return
 
     setLoading(true)
@@ -170,10 +200,10 @@ export default function AsstDeanDashboard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [selectedDept])
 
   // Fetch active term for selected department
-  const fetchTermState = async () => {
+  const fetchTermState = useCallback(async () => {
     if (!selectedDept) return
     try {
       const response = await fetch(`/api/departments/${selectedDept}/term-state`)
@@ -184,7 +214,7 @@ export default function AsstDeanDashboard() {
     } catch (e) {
       // ignore; handled by null check on submit
     }
-  }
+  }, [selectedDept])
 
   // Submit review for a teacher
   const submitReview = async (teacherId: string, comment: string, score: number) => {
@@ -257,7 +287,7 @@ export default function AsstDeanDashboard() {
   }
 
   // HOD evaluation: fetch HODs for selected term
-  const fetchHods = async () => {
+  const fetchHods = useCallback(async () => {
     setHodLoading(true)
     try {
       const res = await fetch(`/api/reviews/asst-dean/hod?term=${hodTerm}`)
@@ -284,7 +314,7 @@ export default function AsstDeanDashboard() {
     } finally {
       setHodLoading(false)
     }
-  }
+  }, [hodTerm])
 
   // Helper function to get teacher status for current term
   const getTeacherStatusForTerm = (teacher: Teacher, term: 'START' | 'END' | null) => {
@@ -405,7 +435,7 @@ export default function AsstDeanDashboard() {
     if (session?.user) {
       fetchDepartments()
     }
-  }, [session])
+  }, [session, fetchDepartments])
 
   // Fetch teachers when department changes
   useEffect(() => {
@@ -413,26 +443,46 @@ export default function AsstDeanDashboard() {
       fetchTeachers()
       fetchTermState()
     }
-  }, [selectedDept])
+  }, [selectedDept, fetchTeachers, fetchTermState])
 
-  // Fetch HODs when hodTerm changes
+  // Fetch HODs only when user actually needs them (lazy loading)
   useEffect(() => {
-    if (session?.user) {
-      fetchHods()
+    if (session?.user && hodTerm) {
+      // Only fetch HODs when hodTerm is set and user is likely to view HOD section
+      const timer = setTimeout(() => {
+        fetchHods()
+      }, 1000) // Small delay to avoid immediate fetch
+      
+      return () => clearTimeout(timer)
     }
-  }, [session, hodTerm])
+  }, [session, hodTerm, fetchHods])
 
-
+  // Comprehensive loading and safety checks
+  if (status === 'loading') {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    )
+  }
 
   if (!session?.user) {
     return (
-      <RoleGuard allowedRoles={['ASST_DEAN']}>
-        <DashboardLayout title="Assistant Dean Dashboard">
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin" />
-          </div>
-        </DashboardLayout>
-      </RoleGuard>
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">Please log in to access the Assistant Dean dashboard.</p>
+          <Loader2 className="w-8 h-8 animate-spin mx-auto" />
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading state while data is being fetched
+  if (hodLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
     )
   }
 
@@ -487,7 +537,7 @@ export default function AsstDeanDashboard() {
                     <SelectValue placeholder="Choose a department" />
                   </SelectTrigger>
                   <SelectContent>
-                    {departments.map((dept) => (
+                    {safeDepartments.map((dept) => (
                       <SelectItem key={dept.id} value={dept.id}>
                         {dept.name}
                       </SelectItem>
@@ -531,11 +581,11 @@ export default function AsstDeanDashboard() {
           )}
 
           {/* Teachers List */}
-          {selectedDept && !loading && teachers.length > 0 && (
+          {selectedDept && !loading && safeTeachers.length > 0 && (
             <div className="space-y-4">
               <h2 className="text-xl font-semibold">Teachers to Review</h2>
 
-              {teachers.map((teacher) => (
+              {safeTeachers.map((teacher) => (
                 <Card key={teacher.id}>
                   <CardHeader>
                     <div className="flex items-center justify-between">
@@ -543,7 +593,7 @@ export default function AsstDeanDashboard() {
                         <CardTitle className="text-lg">{teacher.name}</CardTitle>
                         <p className="text-sm text-gray-600">{teacher.email}</p>
                         <div className="text-xs text-gray-600 mt-1">
-                          HOD Total Score: {(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}
+                          HOD Total Score: {(teacher.hodScore as any)?.[activeTerm || 'START'] || 0}/10
                         </div>
                       </div>
                       <Badge
@@ -658,7 +708,7 @@ export default function AsstDeanDashboard() {
                                             <div className="space-y-1 text-xs">
                                               <div className="flex justify-between">
                                                 <span>Rubric Performance:</span>
-                                                <span className="font-medium">{scores.totalScore} points</span>
+                                                <span className="font-medium">{Math.round((scores.totalScore / 75) * 100)}%</span>
                                               </div>
                                               <div className="flex justify-between">
                                                 <span>Overall Rating:</span>
@@ -738,18 +788,41 @@ export default function AsstDeanDashboard() {
                                   />
                                 </div>
                                 
-                                <div>
-                                  <label className="text-sm font-medium">Score (1-10)</label>
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    max="10"
-                                    value={Number((teacher.asstDeanScore as any)?.[activeTerm || 'START'] || '')}
-                                    onChange={(e) => updateTeacher(teacher.id, { asstDeanScore: { ...(teacher.asstDeanScore as any), [activeTerm || 'START']: parseInt(e.target.value) || 0 } as any })}
-                                    className="mt-1 w-24"
-                                    disabled={!teacher.canReview}
-                                  />
-                                </div>
+                                                                 <div>
+                                   <label className="text-sm font-medium">Score (1-10)</label>
+                                   <Input
+                                     type="number"
+                                     min="1"
+                                     max="10"
+                                     value={Number((teacher.asstDeanScore as any)?.[activeTerm || 'START'] || '')}
+                                     onChange={(e) => {
+                                       const value = parseInt(e.target.value) || 0
+                                       // Clamp value to 1-10 range
+                                       const clampedValue = Math.max(1, Math.min(10, value))
+                                       updateTeacher(teacher.id, { 
+                                         asstDeanScore: { 
+                                           ...(teacher.asstDeanScore as any), 
+                                           [activeTerm || 'START']: clampedValue 
+                                         } as any 
+                                       })
+                                     }}
+                                     onBlur={(e) => {
+                                       const value = parseInt(e.target.value) || 0
+                                       // Ensure value is within range on blur
+                                       if (value < 1 || value > 10) {
+                                         const clampedValue = Math.max(1, Math.min(10, value))
+                                         updateTeacher(teacher.id, { 
+                                           asstDeanScore: { 
+                                             ...(teacher.asstDeanScore as any), 
+                                             [activeTerm || 'START']: clampedValue 
+                                           } as any 
+                                         })
+                                       }
+                                     }}
+                                     className="mt-1 w-24"
+                                     disabled={!teacher.canReview}
+                                   />
+                                 </div>
                                 
                                 {teacher.canReview && (
                                   <Button 
@@ -803,13 +876,13 @@ export default function AsstDeanDashboard() {
                 )}
               </div>
 
-              {!hodLoading && hods.length === 0 && (
+              {!hodLoading && safeHods.length === 0 && (
                 <div className="text-sm text-gray-500">No HODs found.</div>
               )}
 
-              {!hodLoading && hods.length > 0 && (
+              {!hodLoading && safeHods.length > 0 && (
                 <div className="space-y-4">
-                  {hods.map(h => (
+                  {safeHods.map(h => (
                     <Card key={h.id}>
                       <CardHeader>
                         <div className="flex items-center justify-between">
@@ -954,7 +1027,7 @@ export default function AsstDeanDashboard() {
               )}
             </CardContent>
           </Card>
-          {selectedDept && !loading && teachers.length === 0 && (
+          {selectedDept && !loading && safeTeachers.length === 0 && (
             <Card>
               <CardContent className="pt-6">
                 <div className="text-center py-8">
@@ -993,5 +1066,15 @@ export default function AsstDeanDashboard() {
         </Dialog>
       </DashboardLayout>
     </RoleGuard>
+  )
+}
+
+export default function AsstDeanDashboard() {
+  return (
+    <PageErrorBoundary pageName="Assistant Dean Dashboard">
+      <DataErrorBoundary dataType="Assistant Dean dashboard data">
+        <AsstDeanDashboardContent />
+      </DataErrorBoundary>
+    </PageErrorBoundary>
   )
 }

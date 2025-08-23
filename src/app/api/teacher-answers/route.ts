@@ -111,7 +111,8 @@ export async function POST(request: NextRequest) {
     const existingAnswers = await prisma.teacherAnswer.count({
       where: {
         teacherId: session.user.id,
-        term: term as 'START' | 'END'
+        term: term as 'START' | 'END',
+        year: currentYear
       }
     })
     const existingSubmittedComment = await prisma.selfComment.findUnique({
@@ -127,6 +128,7 @@ export async function POST(request: NextRequest) {
       where: {
         departmentId: session.user.departmentId || '',
         term: term as 'START' | 'END',
+        year: currentYear,
         isActive: true
       },
       orderBy: { order: 'asc' }

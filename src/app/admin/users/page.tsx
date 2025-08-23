@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useSession } from 'next-auth/react'
 import RoleGuard from '@/components/RoleGuard'
 import DashboardLayout from '@/components/DashboardLayout'
@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Users, UserCheck, GraduationCap, Shield, BookOpen, Plus, Edit, Trash2, Search, Loader2 } from 'lucide-react'
+import { useAdminData } from '@/hooks/useAdminData'
 
 interface User {
   id: string
@@ -24,22 +25,19 @@ interface User {
     id: string
     name: string
   } | null
-  status: 'active' | 'inactive'
+  departmentId?: string | null
+  status?: 'active' | 'inactive'
   createdAt: string
-}
-
-interface Department {
-  id: string
-  name: string
+  updatedAt?: string
 }
 
 const ITEMS_PER_PAGE = 10
 
 export default function UsersPage() {
   const { data: session } = useSession()
-  const [users, setUsers] = useState<User[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [loading, setLoading] = useState(false)
+  const hookData = useAdminData()
+  
+  // All useState hooks must be declared before any conditional returns
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -53,55 +51,13 @@ export default function UsersPage() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    role: '',
+    role: '' as 'ADMIN' | 'DEAN' | 'ASST_DEAN' | 'HOD' | 'TEACHER' | '',
     departmentId: '',
     password: ''
   })
   
   // Password validation state
   const [passwordErrors, setPasswordErrors] = useState<string[]>([])
-
-  // Fetch users
-  const fetchUsers = async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const url = new URL('/api/admin/users', window.location.origin)
-      const params = new URLSearchParams(window.location.search)
-      const departmentId = params.get('departmentId')
-      const roleParam = params.get('role')
-      if (departmentId) url.searchParams.set('departmentId', departmentId)
-      if (roleParam) url.searchParams.set('role', roleParam)
-
-      const response = await fetch(url.toString())
-      if (!response.ok) {
-        throw new Error('Failed to fetch users')
-      }
-      const data = await response.json()
-      setUsers(data.users || [])
-    } catch (error) {
-
-      setError('Failed to load users')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Fetch departments
-  const fetchDepartments = async () => {
-    try {
-      const response = await fetch('/api/departments')
-      if (!response.ok) {
-        throw new Error('Failed to fetch departments')
-      }
-      const data = await response.json()
-      setDepartments(data.departments || [])
-    } catch (error) {
-
-      setError('Failed to load departments')
-    }
-  }
 
   // Password validation function
   const validatePassword = (password: string): string[] => {
@@ -128,6 +84,51 @@ export default function UsersPage() {
     }
   }
 
+  // Ensure hook data is properly initialized before destructuring
+  if (!hookData || typeof hookData !== 'object') {
+    return (
+      <RoleGuard allowedRoles={['ADMIN']}>
+        <DashboardLayout title="User Management">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          </div>
+        </DashboardLayout>
+      </RoleGuard>
+    )
+  }
+  
+  const { users, departments, refetch, loading, createUser, updateUser, deleteUser } = hookData
+  
+  // Safety check - ensure arrays exist before using them
+  const safeUsers = users || []
+  const safeDepartments = departments || []
+  
+  // Comprehensive loading and safety checks
+  if (!session?.user) {
+    return (
+      <RoleGuard allowedRoles={['ADMIN']}>
+        <DashboardLayout title="User Management">
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 animate-spin" />
+          </div>
+        </DashboardLayout>
+      </RoleGuard>
+    )
+  }
+
+  // Show loading state while data is being fetched or if arrays are not properly initialized
+  if (loading || !Array.isArray(safeUsers) || !Array.isArray(safeDepartments)) {
+    return (
+      <RoleGuard allowedRoles={['ADMIN']}>
+        <DashboardLayout title="User Management">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          </div>
+        </DashboardLayout>
+      </RoleGuard>
+    )
+  }
+  
   // Add new user
   const handleAddUser = async () => {
     if (!formData.name.trim() || !formData.email.trim() || !formData.role) {
@@ -146,32 +147,29 @@ export default function UsersPage() {
     setSuccess(null)
 
     try {
-      const response = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          email: formData.email.trim(),
-          role: formData.role,
-          departmentId: formData.departmentId || null,
-          password: formData.password.trim(),
-        })
+      const response = await createUser({
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        role: formData.role as 'ADMIN' | 'DEAN' | 'ASST_DEAN' | 'HOD' | 'TEACHER',
+        departmentId: formData.departmentId || undefined,
+        password: formData.password.trim(),
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        if (errorData.details && Array.isArray(errorData.details)) {
-          throw new Error(`Password validation failed:\n${errorData.details.join('\n')}`)
-        }
-        throw new Error(errorData.error || 'Failed to add user')
+      // Handle successful response
+      if (response && typeof response === 'object' && 'id' in response) {
+        setSuccess('User added successfully!')
+        refetch()
+        setShowAddModal(false)
+        resetForm()
+      } else {
+        throw new Error('Invalid response from server')
       }
 
       setSuccess('User added successfully!')
-      await fetchUsers()
+      refetch() // Refresh data from cache
       setShowAddModal(false)
       resetForm()
     } catch (error) {
-
       setError(error instanceof Error ? error.message : 'Failed to add user')
     } finally {
       setSubmitting(false)
@@ -200,32 +198,28 @@ export default function UsersPage() {
     setSuccess(null)
 
     try {
-      const response = await fetch(`/api/admin/users/${editingUser.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          email: formData.email.trim(),
-          role: formData.role,
-          departmentId: formData.departmentId || null,
-          password: formData.password
-        })
+      const response = await updateUser(editingUser.id, {
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        role: formData.role as 'ADMIN' | 'DEAN' | 'ASST_DEAN' | 'HOD' | 'TEACHER',
+        departmentId: formData.departmentId || undefined
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        if (errorData.details && Array.isArray(errorData.details)) {
-          throw new Error(`Password validation failed:\n${errorData.details.join('\n')}`)
-        }
-        throw new Error(errorData.error || 'Failed to update user')
+      // Handle successful response
+      if (response && typeof response === 'object' && 'id' in response) {
+        setSuccess('User updated successfully!')
+        refetch()
+        setShowAddModal(false)
+        resetForm()
+      } else {
+        throw new Error('Invalid response from server')
       }
 
       setSuccess('User updated successfully!')
-      await fetchUsers()
+      refetch() // Refresh data from cache
       setShowAddModal(false)
       resetForm()
     } catch (error) {
-
       setError(error instanceof Error ? error.message : 'Failed to update user')
     } finally {
       setSubmitting(false)
@@ -240,20 +234,12 @@ export default function UsersPage() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/admin/users/${deletingUser.id}`, {
-        method: 'DELETE'
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to delete user')
-      }
+      await deleteUser(deletingUser.id)
 
       setSuccess('User deleted successfully!')
-      await fetchUsers()
+      refetch() // Refresh data from cache
       setDeletingUser(null)
     } catch (error) {
-
       setError(error instanceof Error ? error.message : 'Failed to delete user')
     } finally {
       setSubmitting(false)
@@ -287,16 +273,8 @@ export default function UsersPage() {
     setShowAddModal(true)
   }
 
-  // Load data on component mount
-  useEffect(() => {
-    if (session?.user) {
-      fetchUsers()
-      fetchDepartments()
-    }
-  }, [session])
-
   // Filter and paginate users
-  const filteredUsers = users.filter(user =>
+  const filteredUsers = safeUsers.filter(user =>
     user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.role.toLowerCase().includes(searchTerm.toLowerCase())
@@ -338,18 +316,6 @@ export default function UsersPage() {
       default:
         return <Users className="h-4 w-4" />
     }
-  }
-
-  if (!session?.user) {
-    return (
-      <RoleGuard allowedRoles={['ADMIN']}>
-        <DashboardLayout title="User Management">
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin" />
-          </div>
-        </DashboardLayout>
-      </RoleGuard>
-    )
   }
 
   return (
@@ -435,49 +401,49 @@ export default function UsersPage() {
                       disabled={submitting}
                     />
                   </div>
-                                     <div className="grid gap-2">
-                     <label htmlFor="password" className="text-sm font-medium">
-                       {editingUser ? 'New Password (leave blank to keep current)' : 'Password'}
-                     </label>
-                                           <Input
-                        id="password"
-                        type="password"
-                        value={formData.password}
-                        onChange={(e) => handlePasswordChange(e.target.value)}
-                        placeholder={editingUser ? "Enter new password or leave blank" : "Enter password"}
-                        disabled={submitting}
-                        className={passwordErrors.length > 0 ? "border-red-500" : ""}
-                      />
-                      {passwordErrors.length > 0 && (
-                        <div className="text-xs text-red-600 space-y-1">
-                          <p className="font-medium">Password validation errors:</p>
-                          <ul className="list-disc list-inside space-y-0.5">
-                            {passwordErrors.map((error, index) => (
-                              <li key={index}>{error}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                                           {!editingUser && (
-                        <div className="text-xs text-gray-600 space-y-1">
-                          <p className="font-medium">Password must contain:</p>
-                          <ul className="list-disc list-inside space-y-0.5">
-                            <li>At least 8 characters</li>
-                            <li>One number (0-9)</li>
-                          </ul>
-                        </div>
-                      )}
-                     {editingUser && (
-                       <p className="text-xs text-gray-500">
-                         Only fill this field if you want to change the user's password
-                       </p>
-                     )}
-                   </div>
+                  <div className="grid gap-2">
+                    <label htmlFor="password" className="text-sm font-medium">
+                      {editingUser ? 'New Password (leave blank to keep current)' : 'Password'}
+                    </label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={formData.password}
+                      onChange={(e) => handlePasswordChange(e.target.value)}
+                      placeholder={editingUser ? "Enter new password or leave blank" : "Enter password"}
+                      disabled={submitting}
+                      className={passwordErrors.length > 0 ? "border-red-500" : ""}
+                    />
+                    {passwordErrors.length > 0 && (
+                      <div className="text-xs text-red-600 space-y-1">
+                        <p className="font-medium">Password validation errors:</p>
+                        <ul className="list-disc list-inside space-y-0.5">
+                          {passwordErrors.map((error, index) => (
+                            <li key={index}>{error}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {!editingUser && (
+                      <div className="text-xs text-gray-600 space-y-1">
+                        <p className="font-medium">Password must contain:</p>
+                        <ul className="list-disc list-inside space-y-0.5">
+                          <li>At least 8 characters</li>
+                          <li>One number (0-9)</li>
+                        </ul>
+                      </div>
+                    )}
+                    {editingUser && (
+                      <p className="text-xs text-gray-500">
+                        Only fill this field if you want to change the user's password
+                      </p>
+                    )}
+                  </div>
                   <div className="grid gap-2">
                     <label htmlFor="role" className="text-sm font-medium">Role</label>
                     <Select 
                       value={formData.role} 
-                      onValueChange={(value) => setFormData({ ...formData, role: value })}
+                      onValueChange={(value) => setFormData({ ...formData, role: value as 'ADMIN' | 'DEAN' | 'ASST_DEAN' | 'HOD' | 'TEACHER' })}
                       disabled={submitting}
                     >
                       <SelectTrigger>
@@ -503,7 +469,7 @@ export default function UsersPage() {
                         <SelectValue placeholder="Select department" />
                       </SelectTrigger>
                       <SelectContent>
-                        {departments.map((dept) => (
+                        {safeDepartments.map((dept) => (
                           <SelectItem key={dept.id} value={dept.id}>
                             {dept.name}
                           </SelectItem>
@@ -516,19 +482,19 @@ export default function UsersPage() {
                   <Button variant="outline" onClick={() => setShowAddModal(false)} disabled={submitting}>
                     Cancel
                   </Button>
-                                     <Button 
-                     onClick={editingUser ? handleEditUser : handleAddUser} 
-                     disabled={submitting || passwordErrors.length > 0}
-                   >
-                     {submitting ? (
-                       <>
-                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                         {editingUser ? 'Updating...' : 'Adding...'}
-                       </>
-                     ) : (
-                       editingUser ? 'Update User' : 'Add User'
-                     )}
-                   </Button>
+                  <Button 
+                    onClick={editingUser ? handleEditUser : handleAddUser} 
+                    disabled={submitting || passwordErrors.length > 0}
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        {editingUser ? 'Updating...' : 'Adding...'}
+                      </>
+                    ) : (
+                      editingUser ? 'Update User' : 'Add User'
+                    )}
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -543,12 +509,7 @@ export default function UsersPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin mr-2" />
-                  <span>Loading users...</span>
-                </div>
-              ) : paginatedUsers.length > 0 ? (
+              {paginatedUsers.length > 0 ? (
                 <>
                   <Table>
                     <TableHeader>
@@ -574,8 +535,8 @@ export default function UsersPage() {
                           </TableCell>
                           <TableCell>{user.department?.name || 'No Department'}</TableCell>
                           <TableCell>
-                            <Badge variant={user.status === 'active' ? 'default' : 'secondary'}>
-                              {user.status}
+                            <Badge variant="default">
+                              Active
                             </Badge>
                           </TableCell>
                           <TableCell>

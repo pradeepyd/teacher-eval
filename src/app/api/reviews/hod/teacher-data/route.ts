@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       } 
     })
       // HOD can always review teachers in their department - no admin permission needed
-      const hasAnyReviewAccess = true
+      // const hasAnyReviewAccess = true
 
       // Determine active term for department (optional)
       const activeTerm = termState?.activeTerm || 'START'
@@ -45,9 +45,24 @@ export async function GET(request: NextRequest) {
         select: { id: true, name: true, email: true }
       })
 
+      // Check if there are published questions for this term
+      const publishedQuestionsCount = await prisma.question.count({
+        where: {
+          departmentId,
+          term: activeTerm as any,
+          year: currentYear,
+          isActive: true,
+          isPublished: true
+        }
+      })
+
       // Fetch existing HOD reviews to decide status/canReview
       const reviews = await prisma.hodReview.findMany({
-        where: { reviewerId: session.user.id, term: activeTerm },
+        where: { 
+          reviewerId: session.user.id, 
+          term: activeTerm,
+          year: currentYear
+        },
         select: { teacherId: true, submitted: true, comments: true, scores: true }
       })
 
@@ -60,12 +75,29 @@ export async function GET(request: NextRequest) {
 
         // teacher submission check: answers exist OR selfComment.submitted === true
         const [answersCount, selfComment] = await Promise.all([
-          prisma.teacherAnswer.count({ where: { teacherId: t.id, term: activeTerm as any } }),
-          prisma.selfComment.findUnique({ where: { teacherId_term_year: { teacherId: t.id, term: activeTerm as any, year: new Date().getFullYear() } }, select: { submitted: true } })
+          prisma.teacherAnswer.count({ 
+            where: { 
+              teacherId: t.id, 
+              term: activeTerm as any,
+              year: currentYear
+            } 
+          }),
+          prisma.selfComment.findUnique({ 
+            where: { 
+              teacherId_term_year: { 
+                teacherId: t.id, 
+                term: activeTerm as any, 
+                year: currentYear 
+              } 
+            }, 
+            select: { submitted: true } 
+          })
         ])
         const teacherSubmitted = answersCount > 0 || !!selfComment?.submitted
 
         const status = hodReviewed ? 'REVIEWED' : (teacherSubmitted ? 'SUBMITTED' : 'NOT_STARTED')
+
+
 
         return {
           id: t.id,
@@ -101,10 +133,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Get teacher's answers with questions
+    const currentYear = new Date().getFullYear()
     const teacherAnswers = await prisma.teacherAnswer.findMany({
       where: {
         teacherId,
-        term: term as 'START' | 'END'
+        term: term as 'START' | 'END',
+        year: currentYear
       },
       include: {
         question: true

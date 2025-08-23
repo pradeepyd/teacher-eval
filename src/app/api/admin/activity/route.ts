@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { createSuccessResponse, createApiErrorResponse, createUnauthorizedResponse } from '@/lib/api-response'
 
 type ActivityItem = {
   id: string
@@ -16,7 +17,7 @@ export async function GET(_request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return createUnauthorizedResponse()
     }
 
     const TAKE = 12
@@ -93,10 +94,13 @@ export async function GET(_request: NextRequest) {
     const sorted = activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     const recent = sorted.slice(0, 8)
 
-    return NextResponse.json({ activities: recent })
+    return createSuccessResponse({ activities: recent })
   } catch (error) {
     console.error('Error fetching activity feed:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createApiErrorResponse(error, {
+      operation: 'fetch activities',
+      component: 'AdminActivityAPI'
+    })
   }
 }
 

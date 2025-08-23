@@ -41,7 +41,13 @@ export async function PUT(
     }
 
     // If answered, restrict hard edits; allow reordering only
-    const answerCount = await prisma.teacherAnswer.count({ where: { questionId } })
+    const currentYear = new Date().getFullYear()
+    const answerCount = await prisma.teacherAnswer.count({ 
+      where: { 
+        questionId,
+        year: currentYear
+      } 
+    })
 
     const updatedQuestion = await prisma.question.update({
       where: { id: questionId },
@@ -92,7 +98,13 @@ export async function DELETE(
     }
 
     // If answered, soft-disable instead of hard delete
-    const answerCount = await prisma.teacherAnswer.count({ where: { questionId } })
+    const currentYear = new Date().getFullYear()
+    const answerCount = await prisma.teacherAnswer.count({ 
+      where: { 
+        questionId,
+        year: currentYear
+      } 
+    })
     if (answerCount > 0) {
       await prisma.question.update({ where: { id: questionId }, data: { isActive: false } })
       return NextResponse.json({ message: 'Question disabled (soft-deleted) because it has answers' })

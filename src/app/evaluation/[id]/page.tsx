@@ -9,6 +9,8 @@ import EvaluationForm from '@/components/EvaluationForm'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Loader2 } from 'lucide-react'
+import { useTeacherData } from '@/hooks/useTeacherData'
+import { PageErrorBoundary } from '@/components/ErrorBoundary'
 
 interface Evaluation {
   id: string
@@ -27,75 +29,55 @@ interface Evaluation {
   updatedAt: string
 }
 
-export default function EvaluationPage() {
+function EvaluationPageContent() {
   const params = useParams()
   const evaluationId = params.id as string
+  const { fetchEvaluation, updateEvaluation, loading, error } = useTeacherData()
   
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [localLoading, setLocalLoading] = useState(true)
+  const [localError, setLocalError] = useState('')
 
   useEffect(() => {
-    const fetchEvaluation = async () => {
+    const loadEvaluation = async () => {
       try {
-        const response = await fetch(`/api/teacher-evaluation/${evaluationId}`)
-        if (response.ok) {
-          const data = await response.json()
-          setEvaluation(data)
-        } else {
-          setError('Failed to fetch evaluation')
-        }
+        setLocalLoading(true)
+        setLocalError('')
+        const data = await fetchEvaluation(evaluationId)
+        setEvaluation(data)
       } catch (_err) {
-        setError('Error fetching evaluation')
+        setLocalError('Error fetching evaluation')
       } finally {
-        setLoading(false)
+        setLocalLoading(false)
       }
     }
 
     if (evaluationId) {
-      fetchEvaluation()
+      loadEvaluation()
     }
-  }, [evaluationId])
+  }, [evaluationId, fetchEvaluation])
 
   const handleSaveDraft = async (answers: Record<string, any>, comments: string) => {
     try {
-      const response = await fetch(`/api/teacher-evaluation/${evaluationId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers, comments, status: 'draft' })
-      })
-
-      if (response.ok) {
-        // Update local state
-        setEvaluation(prev => prev ? { ...prev, answers, comments, status: 'draft' } : null)
-      } else {
-        setError('Failed to save draft')
-      }
+      await updateEvaluation(evaluationId, { answers, comments, status: 'draft' } as any)
+      // Update local state
+      setEvaluation(prev => prev ? { ...prev, answers, comments, status: 'draft' } : null)
     } catch (_err) {
-      setError('Error saving draft')
+      setLocalError('Error saving draft')
     }
   }
 
   const handleSubmit = async (answers: Record<string, any>, comments: string) => {
     try {
-      const response = await fetch(`/api/teacher-evaluation/${evaluationId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers, comments, status: 'submitted' })
-      })
-
-      if (response.ok) {
-        // Update local state
-        setEvaluation(prev => prev ? { ...prev, answers, comments, status: 'submitted' } : null)
-      } else {
-        setError('Failed to submit evaluation')
-      }
+      await updateEvaluation(evaluationId, { answers, comments, status: 'submitted' } as any)
+      // Update local state
+      setEvaluation(prev => prev ? { ...prev, answers, comments, status: 'submitted' } : null)
     } catch (_err) {
-      setError('Error submitting evaluation')
+      setLocalError('Error submitting evaluation')
     }
   }
 
-  if (loading) {
+  if (localLoading) {
     return (
       <RoleGuard allowedRoles={['TEACHER']}>
         <DashboardLayout title="Teacher Evaluation">
@@ -179,5 +161,13 @@ export default function EvaluationPage() {
         </div>
       </DashboardLayout>
     </RoleGuard>
+  )
+}
+
+export default function EvaluationPage() {
+  return (
+    <PageErrorBoundary pageName="Evaluation Page">
+      <EvaluationPageContent />
+    </PageErrorBoundary>
   )
 }

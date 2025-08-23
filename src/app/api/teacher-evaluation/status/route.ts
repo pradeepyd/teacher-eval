@@ -3,17 +3,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { createSuccessResponse, createApiErrorResponse, createUnauthorizedResponse } from '@/lib/api-response'
+import { batchFetchQuestions, batchFetchTeacherAnswers } from '@/lib/api-performance'
 
 export async function GET(_request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     
     if (!session || session.user.role !== 'TEACHER') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return createUnauthorizedResponse()
     }
 
+    const currentYear = new Date().getFullYear()
+    const terms: ('START' | 'END')[] = ['START', 'END']
+    
     // Get department's active term
-        const currentYear = new Date().getFullYear()
     const termState = await prisma.termState.findUnique({ 
       where: { 
         departmentId_year: {
@@ -23,84 +27,64 @@ export async function GET(_request: NextRequest) {
       } 
     })
 
-    // Teachers can access evaluations when HOD has published questions
-    // Check if published questions exist for each term
-    const startQuestionsExist = await prisma.question.count({
-      where: {
-        departmentId: session.user.departmentId,
-        term: 'START',
-        isActive: true,
-        isPublished: true
-      }
-    }) > 0
+    // Use batch queries to optimize performance
+    // Fetch all questions for both terms in a single query
+    const questionsByTerm = await batchFetchQuestions(
+      session.user.departmentId,
+      terms,
+      true // includePublished = true
+    )
     
-    const endQuestionsExist = await prisma.question.count({
-      where: {
-        departmentId: session.user.departmentId,
-        term: 'END',
-        isActive: true,
-        isPublished: true
-      }
-    }) > 0
-
-    // Resolve deadlines from terms
-    let startTermDeadline: string | null = null
-    let endTermDeadline: string | null = null
+    // Fetch all teacher answers for both terms in a single query
+    const answersByTerm = await batchFetchTeacherAnswers(
+      session.user.id,
+      terms
+    )
     
-    const startTermRow = await prisma.term.findFirst({
-      where: {
-        status: 'START',
-        departments: { some: { id: session.user.departmentId } }
-      },
-      select: { endDate: true }
-    })
-    if (startTermRow?.endDate) {
-      startTermDeadline = startTermRow.endDate.toISOString()
-    }
+    // Get term deadlines in parallel
+    const [startTermRow, endTermRow] = await Promise.all([
+      prisma.term.findFirst({
+        where: {
+          status: 'START',
+          departments: { some: { id: session.user.departmentId } }
+        },
+        select: { endDate: true }
+      }),
+      prisma.term.findFirst({
+        where: {
+          status: 'END',
+          departments: { some: { id: session.user.departmentId } }
+        },
+        select: { endDate: true }
+      })
+    ])
+    
+    // Extract data from batch results
+    const startQuestions = questionsByTerm.START || []
+    const endQuestions = questionsByTerm.END || []
+    const startAnswers = answersByTerm.START || []
+    const endAnswers = answersByTerm.END || []
+    
+    const startQuestionsExist = startQuestions.length > 0
+    const endQuestionsExist = endQuestions.length > 0
+    const startQuestionsCount = startQuestions.length
+    const endQuestionsCount = endQuestions.length
+    
+    // Count unique answered questions (not total answer records)
+    // Only count answers that correspond to questions we actually found
+    const startQuestionIds = new Set(startQuestions.map(q => q.id))
+    const endQuestionIds = new Set(endQuestions.map(q => q.id))
+    
+    const startAnswersCount = startAnswers.length > 0 ? 
+      startAnswers.filter(a => startQuestionIds.has(a.questionId)).length : 0
+    const endAnswersCount = endAnswers.length > 0 ? 
+      endAnswers.filter(a => endQuestionIds.has(a.questionId)).length : 0
+    
 
-    const endTermRow = await prisma.term.findFirst({
-      where: {
-        status: 'END',
-        departments: { some: { id: session.user.departmentId } }
-      },
-      select: { endDate: true }
-    })
-    if (endTermRow?.endDate) {
-      endTermDeadline = endTermRow.endDate.toISOString()
-    }
-
-    const startQuestionsCount = startQuestionsExist ? await prisma.question.count({
-      where: {
-        departmentId: session.user.departmentId,
-        term: 'START',
-        isActive: true,
-        isPublished: true
-      }
-    }) : 0
-
-    const endQuestionsCount = endQuestionsExist ? await prisma.question.count({
-      where: {
-        departmentId: session.user.departmentId,
-        term: 'END',
-        isActive: true,
-        isPublished: true
-      }
-    }) : 0
-
-    // Get teacher's submission status for each term
-    const startAnswersCount = await prisma.teacherAnswer.count({
-      where: {
-        teacherId: session.user.id,
-        term: 'START'
-      }
-    })
-
-    const endAnswersCount = await prisma.teacherAnswer.count({
-      where: {
-        teacherId: session.user.id,
-        term: 'END'
-      }
-    })
+    
+    // Resolve deadlines
+    const startTermDeadline = startTermRow?.endDate?.toISOString() || null
+    const endTermDeadline = endTermRow?.endDate?.toISOString() || null
 
     const startSelfComment = await prisma.selfComment.findUnique({
       where: {
@@ -108,7 +92,8 @@ export async function GET(_request: NextRequest) {
           teacherId: session.user.id,
           term: 'START',
           year: new Date().getFullYear()
-        }
+        },
+        submitted: true
       }
     })
 
@@ -118,7 +103,8 @@ export async function GET(_request: NextRequest) {
           teacherId: session.user.id,
           term: 'END',
           year: new Date().getFullYear()
-        }
+        },
+        submitted: true
       }
     })
 
@@ -147,7 +133,9 @@ export async function GET(_request: NextRequest) {
     const getTermStatus = (questionsCount: number, answersCount: number, hasSelfComment: boolean, hasFinalReview: boolean) => {
       if (questionsCount === 0) return 'NOT_AVAILABLE'
       if (answersCount === 0) return 'NOT_STARTED'
-      if (answersCount === questionsCount && hasSelfComment) {
+      // Ensure answersCount never exceeds questionsCount for status determination
+      const safeAnswersCount = Math.min(answersCount, questionsCount)
+      if (safeAnswersCount === questionsCount && hasSelfComment) {
         return hasFinalReview ? 'REVIEWED' : 'SUBMITTED'
       }
       return 'IN_PROGRESS'
@@ -156,9 +144,11 @@ export async function GET(_request: NextRequest) {
     const startStatus = getTermStatus(startQuestionsCount, startAnswersCount, !!startSelfComment, !!startFinalReview)
     const endStatus = getTermStatus(endQuestionsCount, endAnswersCount, !!endSelfComment, !!endFinalReview)
 
+
+
     const nowIso = new Date().toISOString()
 
-    return NextResponse.json({
+    return createSuccessResponse({
       activeTerm: termState?.activeTerm || null,
       start: {
         status: startStatus,
@@ -181,6 +171,9 @@ export async function GET(_request: NextRequest) {
     })
   } catch (error) {
     console.error('Error fetching evaluation status:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createApiErrorResponse(error, {
+      operation: 'fetch evaluation status',
+      component: 'TeacherEvaluationStatusAPI'
+    })
   }
 }

@@ -111,15 +111,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if teacher evaluation is published for this term before allowing HOD reviews
-    const currentYear = new Date().getFullYear()
-    const termState = await prisma.termState.findUnique({ 
-      where: { 
-        departmentId_year: {
-          departmentId: session.user.departmentId,
-          year: currentYear
-        }
-      } 
-    })
+    // const currentYear = new Date().getFullYear()
+    // const termState = await prisma.termState.findUnique({ 
+    //   where: { 
+    //     departmentId_year: {
+    //       departmentId: session.user.departmentId,
+    //       year: currentYear
+    //     }
+    //   } 
+    // })
     // HOD can always review teachers in their department - no admin permission needed
 
     // Verify teacher belongs to HOD's department
@@ -133,10 +133,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if teacher has submitted their evaluation
+    const currentYear = new Date().getFullYear()
     const teacherAnswers = await prisma.teacherAnswer.findMany({
       where: {
         teacherId,
-        term: term as 'START' | 'END'
+        term: term as 'START' | 'END',
+        year: currentYear
       }
     })
 

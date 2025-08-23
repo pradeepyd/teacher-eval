@@ -10,11 +10,12 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
-import { toast } from 'sonner'
+
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Calendar, Play, Plus, Edit2, Trash2, Loader2, Info } from 'lucide-react'
+import { useTermManagementData } from '@/hooks/useTermManagementData'
 
 interface Term {
   id: string
@@ -36,19 +37,17 @@ interface Term {
   updatedAt: string
 }
 
-interface Department {
-  id: string
-  name: string
-}
+// interface Department {
+//   id: string
+//   name: string
+// }
 
 export default function TermManagementPage() {
   const { data: session } = useSession()
-  const [terms, setTerms] = useState<Term[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [loading, setLoading] = useState(false)
+  const { terms, departments, loading, error, refetch, createTerm, updateTerm, deleteTerm, startTerm, endTerm } = useTermManagementData()
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingTerm, setEditingTerm] = useState<Term | null>(null)
   const [deletingTerm, setDeletingTerm] = useState<Term | null>(null)
@@ -65,26 +64,13 @@ export default function TermManagementPage() {
     selectedDepartments: [] as string[]
   })
 
-  // Fetch terms
-  const fetchTerms = async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const response = await fetch('/api/admin/terms')
-      if (!response.ok) {
-        throw new Error('Failed to fetch terms')
-      }
-      const data = await response.json()
-
-      setTerms(data.terms || [])
-      
-      // Initialize activated and completed terms based on existing data
+  // Initialize activated and completed terms based on existing data
+  useEffect(() => {
+    if (terms.length > 0) {
       const activated = new Set<string>()
       const completed = new Set<string>()
-      data.terms?.forEach((term: Term) => {
-
-        
+      
+      terms.forEach((term: Term) => {
         // Check if term is activated
         const isActivated = term.departments.some(dept => 
           dept.termStates.some(ts => ts.activeTerm === term.status)
@@ -99,39 +85,18 @@ export default function TermManagementPage() {
         )
         
         if (isActivated) {
-
           activated.add(term.id)
         }
         
         if (isCompleted) {
-
           completed.add(term.id)
         }
       })
       
       setActivatedTerms(activated)
       setCompletedTerms(completed)
-    } catch (error) {
-
-      setError('Failed to load terms')
-    } finally {
-      setLoading(false)
     }
-  }
-
-  // Fetch departments
-  const fetchDepartments = async () => {
-    try {
-      const response = await fetch('/api/departments/public')
-      if (!response.ok) {
-        throw new Error('Failed to fetch departments')
-      }
-      const data = await response.json()
-      setDepartments(data)
-    } catch (error) {
-      setError('Failed to load departments')
-    }
-  }
+  }, [terms])
 
   // Reset form
   const resetForm = () => {
@@ -149,12 +114,12 @@ export default function TermManagementPage() {
   // Add term
   const handleAddTerm = async () => {
     if (!formData.name.trim() || !formData.startDate || !formData.endDate) {
-      setError('Please fill in all required fields')
+      setFormError('Please fill in all required fields')
       return
     }
 
     if (formData.selectedDepartments.length === 0) {
-      setError('Please select at least one department')
+      setFormError('Please select at least one department')
       return
     }
 
@@ -173,13 +138,13 @@ export default function TermManagementPage() {
         .filter(d => conflictingDepartments.includes(d.id))
         .map(d => d.name)
         .join(', ')
-      setError(`Cannot create ${formData.termType} term for ${deptNames} in ${formData.year}. A term of this type already exists for these departments.`)
+      setFormError(`Cannot create ${formData.termType} term for ${deptNames} in ${formData.year}. A term of this type already exists for these departments.`)
       return
     }
 
     // Additional validation: Check if departments are selected
     if (formData.selectedDepartments.length === 0) {
-      setError('Please select at least one department')
+      setFormError('Please select at least one department')
       return
     }
 
@@ -188,17 +153,17 @@ export default function TermManagementPage() {
     const endDate = new Date(formData.endDate)
     
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      setError('Please enter valid start and end dates')
+      setFormError('Please enter valid start and end dates')
       return
     }
     
     if (startDate >= endDate) {
-      setError('End date must be after start date')
+      setFormError('End date must be after start date')
       return
     }
 
     setSubmitting(true)
-    setError(null)
+    setFormError(null)
     setSuccess(null)
 
     try {
@@ -211,33 +176,13 @@ export default function TermManagementPage() {
         departmentIds: formData.selectedDepartments
       }
       
-      const response = await fetch('/api/admin/terms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        const errorMessage = errorData.error || 'Failed to create term'
-        
-        // Show more helpful error messages for common validation issues
-        if (errorMessage.includes('already exists')) {
-          throw new Error(errorMessage)
-        } else if (errorMessage.includes('Missing required fields')) {
-          throw new Error('Please fill in all required fields')
-        } else {
-          throw new Error(errorMessage)
-        }
-      }
-
+      await createTerm(requestBody)
       setSuccess('Term created successfully!')
-      await fetchTerms()
       setShowAddModal(false)
       resetForm()
     } catch (error) {
 
-      setError(error instanceof Error ? error.message : 'Failed to create term')
+      setFormError(error instanceof Error ? error.message : 'Failed to create term')
     } finally {
       setSubmitting(false)
     }
@@ -248,39 +193,29 @@ export default function TermManagementPage() {
     if (!editingTerm) return
 
     if (!formData.name.trim() || !formData.startDate || !formData.endDate) {
-      setError('Please fill in all required fields')
+      setFormError('Please fill in all required fields')
       return
     }
 
     setSubmitting(true)
-    setError(null)
+    setFormError(null)
     setSuccess(null)
 
     try {
-      const response = await fetch(`/api/admin/terms/${editingTerm.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          year: parseInt(formData.year),
-          startDate: formData.startDate,
-          endDate: formData.endDate,
-          departmentIds: formData.selectedDepartments
-        })
+      await updateTerm(editingTerm.id, {
+        name: formData.name.trim(),
+        year: parseInt(formData.year),
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        departmentIds: formData.selectedDepartments
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to update term')
-      }
-
       setSuccess('Term updated successfully!')
-      await fetchTerms()
       setShowAddModal(false)
       resetForm()
     } catch (error) {
 
-      setError(error instanceof Error ? error.message : 'Failed to update term')
+      setFormError(error instanceof Error ? error.message : 'Failed to update term')
     } finally {
       setSubmitting(false)
     }
@@ -291,89 +226,62 @@ export default function TermManagementPage() {
     if (!deletingTerm) return
 
     setSubmitting(true)
-    setError(null)
+    setFormError(null)
     setSuccess(null)
 
     try {
-      const response = await fetch(`/api/admin/terms/${deletingTerm.id}`, {
-        method: 'DELETE'
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to delete term')
-      }
-
+      await deleteTerm(deletingTerm.id)
       setSuccess('Term deleted successfully!')
-      await fetchTerms()
       setDeletingTerm(null)
     } catch (error) {
 
-      setError(error instanceof Error ? error.message : 'Failed to delete term')
+      setFormError(error instanceof Error ? error.message : 'Failed to delete term')
     } finally {
       setSubmitting(false)
     }
   }
 
-  // Start term
-  const startTerm = async (termId: string) => {
-    setSubmitting(true)
-    setError(null)
-    setSuccess(null)
+  // Start term - Currently unused
+  // const handleStartTerm = async (termId: string) => {
+  //   setSubmitting(true)
+  //   setFormError(null)
+  //   setSuccess(null)
 
-    try {
-      const response = await fetch(`/api/admin/terms/${termId}/start`, {
-        method: 'POST'
-      })
+  //   try {
+  //     await startTerm(termId)
+  //     setSuccess('START term activated successfully!')
+  //     setActivatedTerms(prev => {
+  //       const newSet = new Set([...prev, termId])
+  //       return newSet
+  //     })
+  //   } catch (error) {
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to start term')
-      }
+  //     setFormError(error instanceof Error ? error.message : 'Failed to start term')
+  //   } finally {
+  //     setSubmitting(false)
+  //   }
+  // }
 
-      setSuccess('START term activated successfully!')
-      setActivatedTerms(prev => {
-        const newSet = new Set([...prev, termId])
-        return newSet
-      })
-      await fetchTerms()
-    } catch (error) {
+  // End term - Currently unused
+  // const handleEndTerm = async (termId: string) => {
+  //   setSubmitting(true)
+  //   setFormError(null)
+  //   setSuccess(null)
 
-      setError(error instanceof Error ? error.message : 'Failed to start term')
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  //   try {
+  //     await endTerm(termId)
+  //     setSuccess('END term activated successfully!')
+  //     setActivatedTerms(prev => {
+  //       const newSet = new Set([...prev, termId])
+  //       return newSet
+  //     })
+  //   } catch (error) {
 
-  // End term
-  const endTerm = async (termId: string) => {
-    setSubmitting(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      const response = await fetch(`/api/admin/terms/${termId}/end`, {
-        method: 'POST'
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to end term')
-      }
-
-      setSuccess('END term activated successfully!')
-      setActivatedTerms(prev => {
-        const newSet = new Set([...prev, termId])
-        return newSet
-      })
-      await fetchTerms()
-    } catch (error) {
-
-      setError(error instanceof Error ? error.message : 'Failed to end term')
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  //     setFormError(error instanceof Error ? error.message : 'Failed to end term')
+  //   } finally {
+  //     setSubmitting(false)
+  //   }
+  // }
 
   // Open edit modal
   const openEditModal = (term: Term) => {
@@ -403,11 +311,9 @@ export default function TermManagementPage() {
 
   // Load data on component mount
   useEffect(() => {
-    if (session?.user) {
-      fetchTerms()
-      fetchDepartments()
-    }
-  }, [session])
+    // Data is automatically loaded by the hook when needed
+    // No need to manually refetch on every visit
+  }, [])
 
   if (!session?.user) {
     return (
@@ -442,9 +348,11 @@ export default function TermManagementPage() {
           </Card>
         </div>
 
-        {error && (
+        {(error || formError) && (
           <Alert className="mb-4 border-red-200 bg-red-50">
-            <AlertDescription className="text-red-800">{error}</AlertDescription>
+            <AlertDescription className="text-red-800">
+              {error || formError}
+            </AlertDescription>
           </Alert>
         )}
 
@@ -820,12 +728,15 @@ export default function TermManagementPage() {
                              >
                                <Edit2 className="h-4 w-4" />
                              </Button>
-                            <AlertDialog>
+                            <AlertDialog onOpenChange={(open) => {
+                              if (open) {
+                                setDeletingTerm(term)
+                              }
+                            }}>
                               <AlertDialogTrigger asChild>
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => setDeletingTerm(term)}
                                   disabled={submitting}
                                 >
                                   <Trash2 className="h-4 w-4" />

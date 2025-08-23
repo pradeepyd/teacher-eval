@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { PageErrorBoundary } from '@/components/ErrorBoundary'
 
-export default function Home() {
+function HomeContent() {
   return (
     <div className="min-h-screen grid place-items-center p-6">
       <div className="text-center">
@@ -11,5 +12,13 @@ export default function Home() {
         </Button>
       </div>
     </div>
+  )
+}
+
+export default function Home() {
+  return (
+    <PageErrorBoundary pageName="Home Page">
+      <HomeContent />
+    </PageErrorBoundary>
   )
 }

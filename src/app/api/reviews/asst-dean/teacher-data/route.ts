@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Department ID is required' }, { status: 400 })
     }
 
-    // Get all teachers in the department with their evaluation data
+    // Optimized query with better filtering and limiting
     const teachers = await prisma.user.findMany({
       where: {
         role: 'TEACHER',
@@ -28,6 +28,10 @@ export async function GET(request: NextRequest) {
       include: {
         department: true,
         teacherAnswers: {
+          where: {
+            // Only get answers for current year
+            year: new Date().getFullYear()
+          },
           include: {
             question: true
           },
@@ -37,18 +41,35 @@ export async function GET(request: NextRequest) {
             }
           }
         },
-        selfComments: true,
+        selfComments: {
+          where: {
+            // Only get comments for current year
+            year: new Date().getFullYear()
+          }
+        },
         receivedHodReviews: {
           where: {
-            submitted: true
+            submitted: true,
+            // Only get reviews for current year
+            year: new Date().getFullYear()
           }
         },
         receivedAsstReviews: {
           where: {
-            submitted: true
+            submitted: true,
+            // Only get reviews for current year
+            year: new Date().getFullYear()
           }
         }
-      }
+      },
+      // Add pagination for large datasets
+      take: 100,
+      orderBy: { name: 'asc' }
+    })
+
+    console.log(`Found ${teachers.length} teachers for department ${departmentId}`)
+    teachers.forEach(teacher => {
+      console.log(`Teacher: ${teacher.name} - Department: ${teacher.department?.name || 'No Dept'}`)
     })
 
     // Transform data for frontend (support legacy numeric scores and new structured object)
