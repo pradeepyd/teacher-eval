@@ -29,7 +29,7 @@ function AdminDashboardContent() {
   const hookData = useAdminData()
   
   // Safe data access with comprehensive error handling
-  const safeHookData = hookData || {}
+  // const safeHookData = hookData || {}
   const { 
     stats = {
       totalUsers: 0,
@@ -42,7 +42,7 @@ function AdminDashboardContent() {
     departments = [], 
     activities = [], 
     loading = false 
-  } = safeHookData
+  } = hookData
   
   // Apply safe transformations to all data
   const safeDepartments = safeArray(departments).map(dept => safeDepartment(dept))

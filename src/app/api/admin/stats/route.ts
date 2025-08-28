@@ -14,7 +14,7 @@ export async function GET(_request: NextRequest) {
     // Get current year for active term filtering
     const currentYear = new Date().getFullYear()
     
-    console.log('Admin stats API called for year:', currentYear)
+    // console.log('Admin stats API called for year:', currentYear)
 
     // Fetch all users with their roles and departments
     const users = await prisma.user.findMany({
@@ -26,18 +26,18 @@ export async function GET(_request: NextRequest) {
       }
     })
     
-    console.log('Found users:', users.length)
+    // console.log('Found users:', users.length)
 
     // Fetch all terms for the current year
     const currentYearTerms = await prisma.term.findMany({
       where: { year: currentYear }
     })
     
-    console.log('Found terms for current year:', currentYearTerms.length)
+    // console.log('Found terms for current year:', currentYearTerms.length)
 
     // If no terms exist for current year, return stats without term-based filtering
     if (currentYearTerms.length === 0) {
-      console.log('No terms found for current year, using basic stats')
+      // console.log('No terms found for current year, using basic stats')
       
       // Try to get basic review counts without term filtering
       const basicHodReviews = await prisma.hodReview.findMany({
@@ -83,7 +83,7 @@ export async function GET(_request: NextRequest) {
       }
     })
     
-    console.log('Found HOD reviews:', hodReviews.length)
+    // console.log('Found HOD reviews:', hodReviews.length)
 
     const asstDeanReviews = await prisma.asstReview.findMany({
       where: {
@@ -92,7 +92,7 @@ export async function GET(_request: NextRequest) {
       }
     })
     
-    console.log('Found Asst Dean reviews:', asstDeanReviews.length)
+    // console.log('Found Asst Dean reviews:', asstDeanReviews.length)
 
     // Fetch teacher final reviews (teachers finalized by dean)
     const teacherFinalReviews = await prisma.finalReview.findMany({
@@ -102,7 +102,7 @@ export async function GET(_request: NextRequest) {
       }
     })
     
-    console.log('Found teacher final reviews:', teacherFinalReviews.length)
+    // console.log('Found teacher final reviews:', teacherFinalReviews.length)
 
     // Fetch HOD performance reviews (HODs finalized by dean)
     const hodPerformanceReviews = await prisma.hodPerformanceReview.findMany({
@@ -115,7 +115,7 @@ export async function GET(_request: NextRequest) {
       }
     }).then(reviews => reviews.filter(review => review.reviewer.role === 'DEAN'))
     
-    console.log('Found HOD performance reviews:', hodPerformanceReviews.length)
+    // console.log('Found HOD performance reviews:', hodPerformanceReviews.length)
 
     // Count completed reviews (teachers and HODs who have been finalized by dean)
     const completedReviews = teacherFinalReviews.length + hodPerformanceReviews.length
@@ -127,15 +127,15 @@ export async function GET(_request: NextRequest) {
     const totalTeachersAndHods = users.filter(u => u.role === 'TEACHER' || u.role === 'HOD').length
     const pendingReviews = Math.max(0, totalTeachersAndHods - completedReviews - activeEvaluations)
     
-    console.log('Review counts:', {
-      hodReviews: hodReviews.length,
-      asstDeanReviews: asstDeanReviews.length,
-      teacherFinalReviews: teacherFinalReviews.length,
-      hodPerformanceReviews: hodPerformanceReviews.length,
-      completedReviews,
-      activeEvaluations,
-      pendingReviews
-    })
+    // console.log('Review counts:', {
+      // hodReviews: hodReviews.length,
+      // asstDeanReviews: asstDeanReviews.length,
+      // teacherFinalReviews: teacherFinalReviews.length,
+      // hodPerformanceReviews: hodPerformanceReviews.length,
+      // completedReviews,
+      // activeEvaluations,
+      // pendingReviews
+    // })
 
     // Calculate statistics
     const stats = {
