@@ -1,0 +1,366 @@
+{
+  "version": 3,
+  "pages404": true,
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=()"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; media-src 'self'; worker-src 'self'"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains; preload"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "require-corp"
+        }
+      ],
+      "regex": "^(?:/(.*))(?:/)?$"
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "same-origin"
+        }
+      ],
+      "regex": "^/api(?:/(.*))(?:/)?$"
+    },
+    {
+      "source": "/admin/(.*)",
+      "headers": [
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Cross-Origin-Resource-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        }
+      ],
+      "regex": "^/admin(?:/(.*))(?:/)?$"
+    }
+  ],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/api/admin/terms/[id]",
+      "regex": "^/api/admin/terms/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/terms/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/admin/terms/[id]/end",
+      "regex": "^/api/admin/terms/([^/]+?)/end(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/terms/(?<nxtPid>[^/]+?)/end(?:/)?$"
+    },
+    {
+      "page": "/api/admin/terms/[id]/start",
+      "regex": "^/api/admin/terms/([^/]+?)/start(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/terms/(?<nxtPid>[^/]+?)/start(?:/)?$"
+    },
+    {
+      "page": "/api/admin/users/[id]",
+      "regex": "^/api/admin/users/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/users/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/auth/[...nextauth]",
+      "regex": "^/api/auth/(.+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPnextauth": "nxtPnextauth"
+      },
+      "namedRegex": "^/api/auth/(?<nxtPnextauth>.+?)(?:/)?$"
+    },
+    {
+      "page": "/api/departments/[id]",
+      "regex": "^/api/departments/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/departments/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/departments/[id]/assign-hod",
+      "regex": "^/api/departments/([^/]+?)/assign\\-hod(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/departments/(?<nxtPid>[^/]+?)/assign\\-hod(?:/)?$"
+    },
+    {
+      "page": "/api/departments/[id]/term-state",
+      "regex": "^/api/departments/([^/]+?)/term\\-state(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/departments/(?<nxtPid>[^/]+?)/term\\-state(?:/)?$"
+    },
+    {
+      "page": "/api/questions/[id]",
+      "regex": "^/api/questions/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/questions/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/dashboard/asst-dean/reviews/[teacherId]/[term]",
+      "regex": "^/dashboard/asst\\-dean/reviews/([^/]+?)/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPteacherId": "nxtPteacherId",
+        "nxtPterm": "nxtPterm"
+      },
+      "namedRegex": "^/dashboard/asst\\-dean/reviews/(?<nxtPteacherId>[^/]+?)/(?<nxtPterm>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/dashboard/dean/reviews/[teacherId]/[term]",
+      "regex": "^/dashboard/dean/reviews/([^/]+?)/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPteacherId": "nxtPteacherId",
+        "nxtPterm": "nxtPterm"
+      },
+      "namedRegex": "^/dashboard/dean/reviews/(?<nxtPteacherId>[^/]+?)/(?<nxtPterm>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/dashboard/hod/reviews/[teacherId]/[term]",
+      "regex": "^/dashboard/hod/reviews/([^/]+?)/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPteacherId": "nxtPteacherId",
+        "nxtPterm": "nxtPterm"
+      },
+      "namedRegex": "^/dashboard/hod/reviews/(?<nxtPteacherId>[^/]+?)/(?<nxtPterm>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/dashboard/teacher/evaluation/[term]",
+      "regex": "^/dashboard/teacher/evaluation/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPterm": "nxtPterm"
+      },
+      "namedRegex": "^/dashboard/teacher/evaluation/(?<nxtPterm>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/evaluation/[id]",
+      "regex": "^/evaluation/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/evaluation/(?<nxtPid>[^/]+?)(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/admin",
+      "regex": "^/admin(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin(?:/)?$"
+    },
+    {
+      "page": "/admin/departments",
+      "regex": "^/admin/departments(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/departments(?:/)?$"
+    },
+    {
+      "page": "/admin/term-management",
+      "regex": "^/admin/term\\-management(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/term\\-management(?:/)?$"
+    },
+    {
+      "page": "/admin/users",
+      "regex": "^/admin/users(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/users(?:/)?$"
+    },
+    {
+      "page": "/dashboard/asst-dean",
+      "regex": "^/dashboard/asst\\-dean(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/asst\\-dean(?:/)?$"
+    },
+    {
+      "page": "/dashboard/asst-dean/reviews",
+      "regex": "^/dashboard/asst\\-dean/reviews(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/asst\\-dean/reviews(?:/)?$"
+    },
+    {
+      "page": "/dashboard/dean",
+      "regex": "^/dashboard/dean(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/dean(?:/)?$"
+    },
+    {
+      "page": "/dashboard/dean/reviews",
+      "regex": "^/dashboard/dean/reviews(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/dean/reviews(?:/)?$"
+    },
+    {
+      "page": "/dashboard/hod",
+      "regex": "^/dashboard/hod(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/hod(?:/)?$"
+    },
+    {
+      "page": "/dashboard/hod/questions",
+      "regex": "^/dashboard/hod/questions(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/hod/questions(?:/)?$"
+    },
+    {
+      "page": "/dashboard/hod/reviews",
+      "regex": "^/dashboard/hod/reviews(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/hod/reviews(?:/)?$"
+    },
+    {
+      "page": "/dashboard/teacher",
+      "regex": "^/dashboard/teacher(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard/teacher(?:/)?$"
+    },
+    {
+      "page": "/favicon.ico",
+      "regex": "^/favicon\\.ico(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/favicon\\.ico(?:/)?$"
+    },
+    {
+      "page": "/login",
+      "regex": "^/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/login(?:/)?$"
+    },
+    {
+      "page": "/reports",
+      "regex": "^/reports(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/reports(?:/)?$"
+    },
+    {
+      "page": "/results",
+      "regex": "^/results(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/results(?:/)?$"
+    },
+    {
+      "page": "/unauthorized",
+      "regex": "^/unauthorized(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/unauthorized(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "RSC",
+    "varyHeader": "RSC, Next-Router-State-Tree, Next-Router-Prefetch, Next-Router-Segment-Prefetch",
+    "prefetchHeader": "Next-Router-Prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSuffix": ".prefetch.rsc",
+    "prefetchSegmentHeader": "Next-Router-Segment-Prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments"
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}
